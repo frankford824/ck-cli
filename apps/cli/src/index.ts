@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -6,6 +8,8 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
+import { hardwareManifest, healthSummary, renderHealthReport, renderWelcome } from "@ccli/experience";
+import { loadHarnessContext, readHarnessProgress, renderHarnessSummary } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
 import { ProductRenderer } from "@ccli/product-ui";
@@ -23,6 +27,21 @@ program
   .option("--cwd <path>", "指定工作目录")
   .option("--expert", "显示专家细节")
   .option("--yes", "确认高影响动作");
+
+program
+  .argument("[request...]", "直接用中文描述想要的结果")
+  .action(async (requestParts?: string[]) => {
+    await withCli(async ({ renderer, cwd, expert, yes }) => {
+      const request = requestParts?.join(" ").trim();
+      if (!request) {
+        print(renderWelcome());
+        return;
+      }
+
+      await runRequirement({ cwd, expert, yes, requirement: request });
+      print(renderer.render({ type: "done", message: "这次需求已处理完成。", severity: "success" }));
+    });
+  });
 
 program
   .command("new")
@@ -71,18 +90,75 @@ program
   .option("--with-pr", "完成后尝试创建团队审查入口")
   .action(async (requirement: string, options: { withPr?: boolean }) => {
     await withCli(async ({ cwd, expert, yes }) => {
-      const config = await loadCcliConfig(cwd);
-      const registry = createDefaultProviderRegistry(config);
-      await new TaskOrchestrator().run({
-        cwd,
-        requirement,
-        expert,
-        yes,
-        withPr: Boolean(options.withPr),
-        config,
-        registry,
-        onEvent: (_event, rendered) => print(rendered)
-      });
+      await runRequirement({ cwd, expert, yes, requirement, withPr: Boolean(options.withPr) });
+    });
+  });
+
+program
+  .command("chat")
+  .description("进入老板友好的中文对话模式")
+  .action(async () => {
+    await withCli(async ({ renderer, cwd, expert, yes }) => {
+      print(renderer.render({ type: "info", message: "你可以直接说想要的结果。输入“退出”结束。" }));
+      const rl = createInterface({ input, output });
+      try {
+        while (true) {
+          const answer = (await rl.question("你想让产品变成什么样？ ")).trim();
+          if (!answer || ["退出", "结束", "bye", "exit", "quit"].includes(answer.toLowerCase())) {
+            print(renderer.render({ type: "done", message: "对话已结束。", severity: "success" }));
+            return;
+          }
+          await runRequirement({ cwd, expert, yes, requirement: answer });
+        }
+      } finally {
+        rl.close();
+      }
+    });
+  });
+
+program
+  .command("doctor")
+  .description("检查当前电脑是否适合直接使用 ccli")
+  .action(async () => {
+    await withCli(async ({ renderer, cwd, expert }) => {
+      const report = healthSummary(await checkHealth(cwd));
+      print(renderHealthReport(report, expert));
+    });
+  });
+
+program
+  .command("hardware")
+  .description("查看未来智能硬件和语音交互协议")
+  .action(async () => {
+    await withCli(async ({ renderer, expert }) => {
+      print(renderer.render({ type: "info", message: "ccli 已预留语音和智能硬件交互协议。" }));
+      if (expert) {
+        print(JSON.stringify(hardwareManifest(), null, 2));
+      } else {
+        print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示和选项。");
+      }
+    });
+  });
+
+program
+  .command("harness")
+  .description("查看当前项目的智能体驾驭系统")
+  .action(async () => {
+    await withCli(async ({ renderer, cwd, expert }) => {
+      const context = await loadHarnessContext(cwd);
+      const progress = await readHarnessProgress(cwd);
+      print(renderer.render({ type: "info", message: "智能体驾驭系统已启用，会负责规则、护栏、验证反馈和进度记忆。" }));
+      print(renderHarnessSummary(context));
+      if (progress) {
+        print(renderer.render({ type: "info", message: `最近进度：${progress.summary} 下一步：${progress.nextAction}` }));
+      }
+      if (expert) {
+        for (const budget of context.toolBudget) {
+          print(`${budget.stage}: ${budget.userVisibleGoal}`);
+          print(`  allowed: ${budget.allowedTools.join(", ")}`);
+          print(`  denied: ${budget.deniedActions.join(", ")}`);
+        }
+      }
     });
   });
 
@@ -439,6 +515,106 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
       ])
     )
   };
+}
+
+async function runRequirement(options: {
+  cwd: string;
+  expert: boolean;
+  yes: boolean;
+  requirement: string;
+  withPr?: boolean;
+}): Promise<void> {
+  const config = await loadCcliConfig(options.cwd);
+  const registry = createDefaultProviderRegistry(config);
+  await new TaskOrchestrator().run({
+    cwd: options.cwd,
+    requirement: options.requirement,
+    expert: options.expert,
+    yes: options.yes,
+    withPr: Boolean(options.withPr),
+    config,
+    registry,
+    onEvent: (_event, rendered) => print(rendered)
+  });
+}
+
+async function checkHealth(cwd: string) {
+  const config = await loadCcliConfig(cwd).catch(() => ({} as CcliConfig));
+  const nodeReady = await commandOk("node", ["--version"]);
+  const gitReady = await commandOk("git", ["--version"]);
+  const pnpmReady = await commandOk("pnpm", ["--version"]);
+  const ghReady = await commandOk("gh", ["auth", "status"]);
+  const inProject = existsSync(resolve(cwd, "package.json")) || existsSync(resolve(cwd, ".git"));
+  const hasRoleConfig = Boolean(config.roles && Object.keys(config.roles).length > 0);
+  const hasModelKey =
+    Boolean(process.env.OPENAI_API_KEY) ||
+    Boolean(process.env.ANTHROPIC_API_KEY) ||
+    Boolean(process.env.GOOGLE_API_KEY) ||
+    Boolean(process.env.GEMINI_API_KEY) ||
+    Boolean(process.env.QWEN_API_KEY) ||
+    Boolean(process.env.DASHSCOPE_API_KEY) ||
+    Boolean(process.env.DEEPSEEK_API_KEY) ||
+    Boolean(process.env.KIMI_API_KEY) ||
+    Boolean(process.env.MOONSHOT_API_KEY);
+
+  return [
+    {
+      name: "基础运行环境",
+      status: nodeReady ? ("ready" as const) : ("action-needed" as const),
+      userMessage: nodeReady ? "已经可以运行 ccli。" : "还缺少运行 ccli 的基础环境。",
+      fix: "安装 Node.js 20 或更高版本。"
+    },
+    {
+      name: "项目保存能力",
+      status: gitReady ? ("ready" as const) : ("action-needed" as const),
+      userMessage: gitReady ? "可以保存每次成果。" : "还不能保存和追踪成果。",
+      fix: "安装 Git。"
+    },
+    {
+      name: "本地构建能力",
+      status: pnpmReady ? ("ready" as const) : ("action-needed" as const),
+      userMessage: pnpmReady ? "可以安装依赖并验证项目。" : "还不能完整安装和验证项目。",
+      fix: "运行 corepack enable，或安装 pnpm。"
+    },
+    {
+      name: "团队交付能力",
+      status: ghReady ? ("ready" as const) : ("optional" as const),
+      userMessage: ghReady ? "可以自动创建、审查和合并团队交付。" : "暂时只能在本地工作，配置后可自动交付到 GitHub。",
+      fix: "运行 gh auth login。"
+    },
+    {
+      name: "当前工作区",
+      status: inProject ? ("ready" as const) : ("optional" as const),
+      userMessage: inProject ? "已经在一个可工作的项目里。" : "当前目录还不像一个项目，可以先创建新项目。",
+      fix: "运行 ccli new 我的应用。"
+    },
+    {
+      name: "智能开发能力",
+      status: hasModelKey ? ("ready" as const) : hasRoleConfig ? ("optional" as const) : ("action-needed" as const),
+      userMessage: hasModelKey
+        ? "已经检测到模型授权，可以进入更完整的自动开发。"
+        : "还没有检测到模型授权；现在仍可创建项目、记录需求和走本地流程。",
+      fix: "设置 OpenAI、Anthropic、Google、Qwen、DeepSeek 或 Kimi 的环境变量。"
+    }
+  ];
+}
+
+async function commandOk(command: string, args: string[]): Promise<boolean> {
+  return new Promise((resolveCommand) => {
+    const child = spawn(command, args, { stdio: "ignore", windowsHide: true });
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      resolveCommand(false);
+    }, 10_000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolveCommand(code === 0);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolveCommand(false);
+    });
+  });
 }
 
 function reviewComment(title: string, review: Awaited<ReturnType<ReviewerAgent["review"]>>): string {

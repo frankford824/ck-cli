@@ -5,6 +5,8 @@
     "baseUrl": ".",
     "paths": {
       "@ccli/agent-core": ["packages/agent-core/src/index.ts"],
+      "@ccli/experience": ["packages/experience/src/index.ts"],
+      "@ccli/harness": ["packages/harness/src/index.ts"],
       "@ccli/memory": ["packages/memory/src/index.ts"],
       "@ccli/methodology": ["packages/methodology/src/index.ts"],
       "@ccli/policy": ["packages/policy/src/index.ts"],

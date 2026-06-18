@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
+import { harnessPrompt, loadHarnessContext, progressSnapshot, writeHarnessProgress, type HarnessContext } from "@ccli/harness";
 import { LocalMemoryStore, memoryContextForPrompt } from "@ccli/memory";
 import { forcingQuestions, specialistPrompt, sprintPlanLabels } from "@ccli/methodology";
 import { ProductRenderer, type ProductEvent } from "@ccli/product-ui";
 import { collectText, type CcliConfig, type ModelProvider, type ProviderRegistry } from "@ccli/providers";
 import { ReviewerAgent, type ReviewResult } from "@ccli/review";
 import { AuditSession, updateState } from "@ccli/session";
-import { FileTool, GitHubTool, GitTool, ProjectTool } from "@ccli/tools";
+import { FileTool, GitHubTool, GitTool, ProjectTool, type CommandResult } from "@ccli/tools";
 
 export interface ProductPlan {
   goal: string;
@@ -46,7 +47,12 @@ interface RoleSelection {
 }
 
 export class PlannerAgent {
-  async plan(requirement: string, selection?: RoleSelection, memoryContext = "没有找到相关历史记忆。"): Promise<ProductPlan> {
+  async plan(
+    requirement: string,
+    selection?: RoleSelection,
+    memoryContext = "没有找到相关历史记忆。",
+    harnessContext?: HarnessContext
+  ): Promise<ProductPlan> {
     if (selection) {
       const parsed = await collectText(selection.provider, {
         model: selection.model,
@@ -56,7 +62,7 @@ export class PlannerAgent {
           {
             role: "system",
             content:
-              `你是中文产品规划代理。只输出 JSON，不要使用 Markdown。字段：goal,outcome,steps,acceptanceCriteria。面向普通用户，不写代码和技术术语。\n${specialistPrompt()}`
+              `你是中文产品规划代理。只输出 JSON，不要使用 Markdown。字段：goal,outcome,steps,acceptanceCriteria。面向普通用户，不写代码和技术术语。\n${specialistPrompt()}\n${harnessContext ? harnessPrompt(harnessContext, "plan") : ""}`
           },
           { role: "user", content: JSON.stringify({ requirement, memoryContext, forcingQuestions: forcingQuestions(requirement) }) }
         ]
@@ -88,6 +94,9 @@ export class BuilderAgent {
     audit: AuditSession;
     confirmed?: boolean;
     selection?: RoleSelection;
+    harnessContext?: HarnessContext;
+    repairFeedback?: string;
+    allowFallback?: boolean;
   }): Promise<BuildResult> {
     if (input.selection) {
       const modelResult = await this.buildWithModel({ ...input, selection: input.selection }).catch(async (error: unknown) => {
@@ -97,6 +106,14 @@ export class BuilderAgent {
       if (modelResult) {
         return modelResult;
       }
+    }
+
+    if (input.allowFallback === false) {
+      return {
+        summary: "验证反馈已记录，但当前没有得到可安全应用的自动修复结果。",
+        changedFiles: [],
+        usedModel: false
+      };
     }
 
     const fileName = "PRODUCT_REQUEST.md";
@@ -127,6 +144,8 @@ export class BuilderAgent {
     audit: AuditSession;
     confirmed?: boolean;
     selection: RoleSelection;
+    harnessContext?: HarnessContext;
+    repairFeedback?: string;
   }): Promise<BuildResult | undefined> {
     const projectFiles = (await this.fileTool.list({ cwd: input.cwd, audit: input.audit })).slice(0, 80);
     const packageJson = await this.fileTool.read("package.json", { cwd: input.cwd, audit: input.audit }).catch(() => "");
@@ -147,13 +166,14 @@ export class BuilderAgent {
         {
           role: "system",
           content:
-            "你是开发代理。只输出 JSON，不要 Markdown。JSON 字段：summary 字符串，changes 数组。每个 change 包含 path、action、content。action 只能是 write。只做必要改动，不要删除文件，不要写密钥，不要展示解释。"
+            `你是开发代理。只输出 JSON，不要 Markdown。JSON 字段：summary 字符串，changes 数组。每个 change 包含 path、action、content。action 只能是 write。只做必要改动，不要删除文件，不要写密钥，不要展示解释。\n${input.harnessContext ? harnessPrompt(input.harnessContext, "build") : ""}`
         },
         {
           role: "user",
           content: JSON.stringify({
             requirement: input.requirement,
             plan: input.plan,
+            repairFeedback: input.repairFeedback,
             designContract,
             officeHours,
             frontendDesign,
@@ -216,10 +236,17 @@ export class TaskOrchestrator {
     const renderer = new ProductRenderer({ expert: options.expert });
     const audit = await AuditSession.create({ cwd: options.cwd, task: options.requirement });
     const memory = new LocalMemoryStore(options.cwd);
+    const harnessContext = await loadHarnessContext(options.cwd);
     const emit = async (event: ProductEvent) => {
       await audit.recordEvent(event);
       await options.onEvent?.(event, renderer.render(event));
     };
+    await audit.record("harness.context", "Harness 上下文已加载", {
+      standingFacts: harnessContext.standingFacts.map((document) => document.path),
+      rules: harnessContext.rules.map((document) => document.path),
+      skills: harnessContext.skills.map((document) => document.path),
+      memory: Boolean(harnessContext.memory)
+    });
 
     await updateState(options.cwd, {
       currentTask: options.requirement,
@@ -231,6 +258,13 @@ export class TaskOrchestrator {
 
     try {
       await emit({ type: "inspect", message: "正在了解当前项目。" });
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "inspect",
+        summary: "正在了解当前项目。",
+        facts: harnessContext.standingFacts.map((document) => document.title),
+        nextAction: "整理中文产品方案。"
+      });
       await this.git.init({ cwd: options.cwd, audit, confirmed: true });
       const branch = await this.git.createTaskBranch(slugFor(options.requirement), {
         cwd: options.cwd,
@@ -251,24 +285,83 @@ export class TaskOrchestrator {
       const plan = await this.planner.plan(
         options.requirement,
         roleSelection("planner", options),
-        memoryContextForPrompt(memoryHits)
+        memoryContextForPrompt(memoryHits),
+        harnessContext
       );
       await audit.record("planner.result", "实现方案已生成", plan);
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "plan",
+        summary: "中文产品方案已生成。",
+        facts: [plan.goal, plan.outcome],
+        nextAction: "按方案实现必要改动。"
+      });
 
       await emit({ type: "edit", message: "正在实现功能。" });
-      const build = await this.builder.build({
+      const builderSelection = roleSelection("builder", options);
+      let build = await this.builder.build({
         cwd: options.cwd,
         requirement: options.requirement,
         plan,
         audit,
         confirmed: options.yes,
-        selection: roleSelection("builder", options)
+        selection: builderSelection,
+        harnessContext
+      });
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "build",
+        summary: build.summary,
+        facts: build.changedFiles.length ? [`已更新 ${build.changedFiles.length} 处内容。`] : ["本次主要沉淀了需求。"],
+        nextAction: "验证是否正常。"
       });
 
       await emit({ type: "validate", message: "正在验证是否正常。" });
-      await this.project.runValidation({ cwd: options.cwd, audit, confirmed: true }).catch(async (error: unknown) => {
-        await audit.record("workflow.validation.error", "自动验证没有全部完成", serializeError(error));
+      let validationOutcome = await runWorkflowValidation(this.project, {
+        cwd: options.cwd,
+        audit,
+        confirmed: true
       });
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "validate",
+        summary: validationSummary(validationOutcome.validation),
+        facts: validationOutcome.facts,
+        nextAction: validationOutcome.validation === "failed" ? "把验证反馈交给开发代理修复。" : "进入独立审查。",
+        validation: validationOutcome.validation
+      });
+
+      if (validationOutcome.validation === "failed" && builderSelection && build.usedModel) {
+        await emit({ type: "edit", message: "自动验证发现问题，正在修正。" });
+        await audit.record("harness.backpressure.start", "验证失败反馈已交给开发代理", {
+          feedback: validationOutcome.feedback
+        });
+        const repair = await this.builder.build({
+          cwd: options.cwd,
+          requirement: options.requirement,
+          plan,
+          audit,
+          confirmed: options.yes,
+          selection: builderSelection,
+          harnessContext,
+          repairFeedback: validationOutcome.feedback,
+          allowFallback: false
+        });
+        build = mergeBuildResults(build, repair);
+        validationOutcome = await runWorkflowValidation(this.project, {
+          cwd: options.cwd,
+          audit,
+          confirmed: true
+        });
+        await saveProgress(options.cwd, audit, {
+          task: options.requirement,
+          currentStage: "validate",
+          summary: validationSummary(validationOutcome.validation),
+          facts: validationOutcome.facts,
+          nextAction: "进入独立审查。",
+          validation: validationOutcome.validation
+        });
+      }
 
       await emit({ type: "review", message: "正在进行独立审查。" });
       const review = await this.reviewer.review({
@@ -277,12 +370,27 @@ export class TaskOrchestrator {
         audit,
         reviewer: roleSelection("reviewer", options)
       });
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "review",
+        summary: review.summary,
+        facts: review.risks.length ? review.risks : ["独立审查未发现明显风险。"],
+        nextAction: "保存本次成果。",
+        validation: review.validation
+      });
 
       await emit({ type: "save", message: "正在保存本次成果。" });
       const committed = await this.git.commitAll(commitMessage(options.requirement), {
         cwd: options.cwd,
         audit,
         confirmed: true
+      });
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "save",
+        summary: committed ? "本次成果已保存。" : "本次没有发现需要保存的新成果。",
+        facts: [`当前分支：${branch}`],
+        nextAction: options.withPr ? "准备团队审查入口。" : "等待下一次需求。"
       });
 
       let prUrl: string | undefined;
@@ -305,6 +413,13 @@ export class TaskOrchestrator {
           );
           prUrl = pr.url;
           await emit({ type: "pr", message: pr.message, severity: pr.created ? "success" : "warning" });
+          await saveProgress(options.cwd, audit, {
+            task: options.requirement,
+            currentStage: "ship",
+            summary: pr.message,
+            facts: pr.url ? ["团队审查入口已准备好。"] : ["还不能自动创建团队审查入口。"],
+            nextAction: "等待团队审查或继续迭代。"
+          });
         }
       }
 
@@ -321,6 +436,7 @@ export class TaskOrchestrator {
         steps: [
           { name: "理解需求", status: "done", message: "已完成" },
           { name: "实现功能", status: "done", message: build.summary },
+          { name: "自动验证", status: validationOutcome.validation === "passed" ? "done" : validationOutcome.validation, message: validationSummary(validationOutcome.validation) },
           { name: "独立审查", status: "done", message: review.summary },
           { name: "保存成果", status: committed ? "done" : "skipped", message: summary }
         ]
@@ -335,15 +451,31 @@ export class TaskOrchestrator {
         metadata: {
           branch,
           usedModel: build.usedModel,
+          harnessValidation: validationOutcome.validation,
           validation: review.validation,
           risks: review.risks
         }
       });
 
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: options.withPr ? "ship" : "save",
+        summary,
+        facts: [build.summary, review.summary],
+        nextAction: "可以继续输入下一个中文需求。",
+        validation: review.validation
+      });
       await emit({ type: "done", message: summary, severity: "success" });
       return { branch, summary, build, review, prUrl };
     } catch (error) {
       await audit.record("workflow.error", "任务流程失败", serializeError(error));
+      await saveProgress(options.cwd, audit, {
+        task: options.requirement,
+        currentStage: "review",
+        summary: "任务遇到问题，技术细节已记录到审计日志。",
+        facts: ["用户界面只展示影响说明。"],
+        nextAction: "查看审计摘要或修复环境后重试。"
+      });
       await updateState(options.cwd, {
         currentTask: options.requirement,
         status: "failed",
@@ -431,6 +563,107 @@ function prBody(requirement: string, build: BuildResult, review: ReviewResult): 
     "## 风险",
     review.risks.length ? review.risks.map((risk) => `- ${risk}`).join("\n") : "未发现明显风险。"
   ].join("\n");
+}
+
+interface ValidationOutcome {
+  validation: ReviewResult["validation"];
+  facts: string[];
+  feedback: string;
+}
+
+async function runWorkflowValidation(
+  project: ProjectTool,
+  context: { cwd: string; audit: AuditSession; confirmed: boolean }
+): Promise<ValidationOutcome> {
+  let validationError: unknown;
+  const results = await project.runValidation(context).catch(async (error: unknown) => {
+    validationError = error;
+    await context.audit.record("workflow.validation.error", "自动验证没有全部完成", serializeError(error));
+    return undefined;
+  });
+
+  if (results === undefined) {
+    return {
+      validation: "failed",
+      facts: ["自动验证过程遇到问题。"],
+      feedback: JSON.stringify({ error: serializeError(validationError ?? new Error("自动验证过程遇到问题。")) })
+    };
+  }
+
+  if (!results.length) {
+    return {
+      validation: "skipped",
+      facts: ["当前项目没有可自动执行的验证，或依赖还没有安装。"],
+      feedback: "当前项目没有可自动执行的验证，或依赖还没有安装。"
+    };
+  }
+
+  const failed = results.filter((result) => result.exitCode !== 0);
+  if (!failed.length) {
+    return {
+      validation: "passed",
+      facts: [`已完成 ${results.length} 项自动验证。`],
+      feedback: "自动验证已通过。"
+    };
+  }
+
+  return {
+    validation: "failed",
+    facts: [`${failed.length} 项自动验证没有通过。`],
+    feedback: JSON.stringify(
+      {
+        message: "自动验证没有全部通过。请只做最小必要修复。",
+        failed: failed.map(validationResultForFeedback)
+      },
+      null,
+      2
+    )
+  };
+}
+
+function validationResultForFeedback(result: CommandResult): Record<string, unknown> {
+  return {
+    command: result.command,
+    exitCode: result.exitCode,
+    stdout: tailForModel(result.stdout),
+    stderr: tailForModel(result.stderr)
+  };
+}
+
+function validationSummary(validation: ReviewResult["validation"]): string {
+  if (validation === "passed") {
+    return "自动验证已通过。";
+  }
+  if (validation === "failed") {
+    return "自动验证发现问题，已进入受控反馈流程。";
+  }
+  return "当前项目没有可自动执行的验证，已记录为未覆盖风险。";
+}
+
+function mergeBuildResults(first: BuildResult, second: BuildResult): BuildResult {
+  if (!second.changedFiles.length) {
+    return first;
+  }
+  return {
+    summary: `${first.summary} ${second.summary}`.trim(),
+    changedFiles: [...new Set([...first.changedFiles, ...second.changedFiles])],
+    usedModel: first.usedModel || second.usedModel
+  };
+}
+
+async function saveProgress(
+  cwd: string,
+  audit: AuditSession,
+  input: Parameters<typeof progressSnapshot>[0]
+): Promise<void> {
+  const progress = progressSnapshot(input);
+  await writeHarnessProgress(cwd, progress).catch(async (error: unknown) => {
+    await audit.record("harness.progress.error", "Harness 进度写入失败", serializeError(error));
+  });
+}
+
+function tailForModel(text: string): string {
+  return text.length <= 4000 ? text : text.slice(-4000);
 }
 
 function serializeError(error: unknown): unknown {

@@ -42,6 +42,17 @@ describe("tools", () => {
     }
   });
 
+  it("stops timed out shell commands", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-"));
+    try {
+      const result = await runShell("node -e \"setTimeout(() => {}, 5000)\"", cwd, 100);
+      expect(result.exitCode).toBe(124);
+      expect(result.stderr).toContain("超时");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("finds an existing open PR for the current branch", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-"));
     try {

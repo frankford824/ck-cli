@@ -29,6 +29,12 @@ importers:
       '@ccli/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@ccli/experience':
+        specifier: workspace:*
+        version: link:../../packages/experience
+      '@ccli/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
       '@ccli/memory':
         specifier: workspace:*
         version: link:../../packages/memory
@@ -69,6 +75,9 @@ importers:
 
   packages/agent-core:
     dependencies:
+      '@ccli/harness':
+        specifier: workspace:*
+        version: link:../harness
       '@ccli/memory':
         specifier: workspace:*
         version: link:../memory
@@ -93,6 +102,27 @@ importers:
       '@ccli/tools':
         specifier: workspace:*
         version: link:../tools
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.30
+        version: 22.19.21
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/experience:
+    devDependencies:
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/harness:
     devDependencies:
       '@types/node':
         specifier: ^22.15.30

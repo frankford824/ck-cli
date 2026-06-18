@@ -7,5 +7,6 @@ dist/
 !.env.example
 .ccli/audit/
 .ccli/state.json
+.ccli/progress.json
 .ccli/memory.jsonl
 coverage/
