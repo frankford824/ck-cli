@@ -73,14 +73,15 @@ $env:CCLI_REF="你的分支名"; irm https://raw.githubusercontent.com/frankford
 
 前置要求：
 
-- Node.js 20 或更高版本
-- pnpm，安装器会优先通过 corepack 自动启用，必要时回退到 npm 安装
+- Node.js 可选；没有 Node.js 20 或更高版本时，安装器会自动准备 ccli 自带运行环境
+- pnpm 可选；安装器会优先通过 corepack 自动启用，必要时回退到 npm 安装
 - Git 可选；有 Git 时安装器会用 Git 更新，没有 Git 时会自动下载源码包
 
 默认安装位置：
 
 - macOS / Linux：`~/.ccli/ck-cli`，启动器在 `~/.local/bin/ccli`
 - Windows：`%LOCALAPPDATA%\ccli\ck-cli`，启动器在 `%LOCALAPPDATA%\ccli\bin\ccli.cmd`
+- 如果自动准备运行环境，会放在用户目录下的 ccli 本地目录，不需要单独配置系统 Node.js
 
 卸载：
 
