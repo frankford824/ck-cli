@@ -108,7 +108,7 @@ program
     await withCli(async ({ renderer, cwd, expert, yes }) => {
       const request = requestParts?.join(" ").trim();
       if (!request) {
-        print(renderWelcome());
+        print(renderBossHome(await buildBossHome(cwd)));
         return;
       }
 
@@ -2859,6 +2859,20 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
   const hasCurrentProduct = Boolean(readiness?.canPreview);
   if (!projects.length && !hasCurrentProduct) {
     actions.push({
+      id: "boss-wizard",
+      title: "先问清楚业务目标",
+      reason: "用几句中文把目标用户、首屏重点和验收标准固定下来，后面开发更稳。",
+      say: "一步步问我，然后开工",
+      command: "ccli wizard"
+    });
+    actions.push({
+      id: "harness-init",
+      title: "补齐驾驭支架",
+      reason: "先放好项目规则、权限护栏、验证反馈和进度记忆，避免长任务跑偏。",
+      say: "补齐驾驭系统",
+      command: "ccli harness --init"
+    });
+    actions.push({
       id: "try-demo",
       title: "先安全试用一遍",
       reason: "不用模型授权，也不改当前目录，先看到一套演示产品是否能跑起来。",
@@ -2916,7 +2930,7 @@ function nextActionSummary(inputValue: { state?: CcliState; canPreview: boolean;
   if (inputValue.projectCount > 0) {
     return "你已经有产品记录，建议先打开最近产品继续。";
   }
-  return "当前还没有产品，建议先安全试用一遍，马上看到可运行页面。";
+  return "当前还没有产品，建议先用开工向导问清楚业务目标，再决定生成首版或安全试用。";
 }
 
 async function runTryDemo(inputValue: {
