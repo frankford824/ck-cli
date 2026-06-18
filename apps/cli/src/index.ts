@@ -38,6 +38,7 @@ import {
   renderWelcome,
   speechText,
   starterIdeas,
+  toPublicExperienceData,
   toPublicHardwareResponse,
   type BossApprovalReceipt,
   type BossBrief,
@@ -55,11 +56,13 @@ import {
 } from "@ccli/experience";
 import {
   analyzeHarnessReadiness,
+  analyzeHarnessPlaybook,
   analyzeHarnessRoadmap,
   loadHarnessContext,
   readHarnessProgress,
   recordHarnessLesson,
   renderHarnessMethod,
+  renderHarnessPlaybook,
   renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessRoadmap,
@@ -392,7 +395,7 @@ program
     await withCli(async ({ cwd }) => {
       const guide = await buildSetupGuide(cwd);
       if (options.json) {
-        print(JSON.stringify(guide, null, 2));
+        printPublicJson(guide);
         return;
       }
       print(renderSetupGuide(guide));
@@ -408,7 +411,7 @@ program
     await withCli(async ({ cwd }) => {
       const home = await buildBossHome(cwd);
       if (options.json) {
-        print(JSON.stringify(home, null, 2));
+        printPublicJson(home);
         return;
       }
       print(renderBossHome(home));
@@ -424,7 +427,7 @@ program
     await withCli(async ({ cwd }) => {
       const card = await buildBossReportCard(cwd);
       if (options.json) {
-        print(JSON.stringify(card, null, 2));
+        printPublicJson(card);
         return;
       }
       print(renderBossReportCard(card));
@@ -446,7 +449,7 @@ program
         return;
       }
       if (options.json) {
-        print(JSON.stringify(result.brief, null, 2));
+        printPublicJson(result.brief);
         return;
       }
       if (result.saved) {
@@ -469,7 +472,7 @@ program
       const goal = goalParts?.join(" ").trim();
       const card = await buildBossQuestionCard(cwd, goal);
       if (options.json) {
-        print(JSON.stringify(card, null, 2));
+        printPublicJson(card);
         return;
       }
       print(renderBossQuestionCard(card));
@@ -491,7 +494,7 @@ program
       }
       const result = await buildOrSaveBossBriefFromAnswers(cwd, answer);
       if (options.json) {
-        print(JSON.stringify({ brief: result.brief, answers: result.answers, saved: result.saved }, null, 2));
+        printPublicJson({ brief: result.brief, answers: result.answers, saved: result.saved });
         return;
       }
       print(renderer.render({ type: "done", message: "老板回答已整理成业务简报，后续开发和验收会围绕它推进。", severity: "success" }));
@@ -508,7 +511,7 @@ program
     await withCli(async ({ cwd }) => {
       const guide = await buildAcceptanceGuide(cwd);
       if (options.json) {
-        print(JSON.stringify(guide, null, 2));
+        printPublicJson(guide);
         return;
       }
       print(renderAcceptanceGuide(guide));
@@ -525,7 +528,7 @@ program
     await withCli(async ({ cwd, renderer }) => {
       const receipt = await recordBossApproval(cwd, noteParts?.join(" ").trim());
       if (options.json) {
-        print(JSON.stringify(receipt, null, 2));
+        printPublicJson(receipt);
         return;
       }
       print(renderer.render({ type: "done", message: "老板验收通过已记录，后续交付会带上这份凭证。", severity: "success" }));
@@ -546,7 +549,7 @@ program
         return;
       }
       if (options.json) {
-        print(JSON.stringify(receipt, null, 2));
+        printPublicJson(receipt);
         return;
       }
       print(renderBossApprovalReceipt(receipt));
@@ -640,7 +643,7 @@ program
     await withCli(async ({ cwd }) => {
       const plan = await buildNextActionPlan(cwd);
       if (options.json) {
-        print(JSON.stringify(plan, null, 2));
+        printPublicJson(plan);
         return;
       }
       print(renderNextActions(plan));
@@ -683,7 +686,7 @@ program
           return;
         }
         if (options.json) {
-          print(JSON.stringify(ideas, null, 2));
+          printPublicJson(ideas);
           return;
         }
         print(renderStarterIdeas(ideas));
@@ -791,12 +794,19 @@ program
   .description("查看当前项目的智能体驾驭系统")
   .option("--init", "为当前项目补齐完整驾驭支架")
   .option("--method", "查看驾驭方法怎么用")
+  .option("--playbook", "查看今天怎么按驾驭方法推进任务")
   .option("--roadmap", "查看 14 步驾驭路线图")
   .option("--overwrite", "覆盖已有支架文件")
-  .action(async (options: { init?: boolean; method?: boolean; roadmap?: boolean; overwrite?: boolean }) => {
+  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; overwrite?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
       if (options.method) {
         print(renderHarnessMethod());
+        return;
+      }
+      if (options.playbook) {
+        const context = await loadHarnessContext(cwd);
+        const progress = await readHarnessProgress(cwd);
+        print(renderHarnessPlaybook(analyzeHarnessPlaybook(context, progress)));
         return;
       }
       if (options.roadmap) {
@@ -867,7 +877,7 @@ program
     await withCli(async ({ cwd }) => {
       const guide = await buildResumeGuide(cwd);
       if (options.json) {
-        print(JSON.stringify(guide, null, 2));
+        printPublicJson(guide);
         return;
       }
       print(renderResumeGuide(guide));
@@ -1164,6 +1174,10 @@ async function confirmChinese(question: string): Promise<boolean> {
 
 function print(message: string): void {
   process.stdout.write(`${message}\n`);
+}
+
+function printPublicJson(value: unknown): void {
+  print(JSON.stringify(toPublicExperienceData(value), null, 2));
 }
 
 function redactConfig(configValue: CcliConfig): CcliConfig {
@@ -2247,6 +2261,13 @@ async function runNaturalLanguageIntent(inputValue: {
     const context = await loadHarnessContext(inputValue.cwd);
     const progress = await readHarnessProgress(inputValue.cwd);
     print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
+    return true;
+  }
+
+  if (isHarnessPlaybookRequest(request)) {
+    const context = await loadHarnessContext(inputValue.cwd);
+    const progress = await readHarnessProgress(inputValue.cwd);
+    print(renderHarnessPlaybook(analyzeHarnessPlaybook(context, progress)));
     return true;
   }
 
@@ -3388,7 +3409,7 @@ async function runUndoFlow(inputValue: {
 async function renderKnownProjects(inputValue: { renderer: ProductRenderer; expert: boolean; json: boolean }): Promise<void> {
   const projects = await readProjectRegistry();
   if (inputValue.json) {
-    print(JSON.stringify(projects.map((project, index) => projectSummary(project, index)), null, 2));
+    printPublicJson(projects.map((project, index) => projectSummary(project, index)));
     return;
   }
   if (!projects.length) {
@@ -3847,6 +3868,11 @@ function isUndoRequest(request: string): boolean {
 function isHarnessMethodRequest(request: string): boolean {
   return /(?:怎么|如何|方法|原理|介绍|说明|使用).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
     /(?:驾驭|harness|智能体支架|开发支架).*(?:怎么|如何|方法|原理|介绍|说明|使用)/i.test(request);
+}
+
+function isHarnessPlaybookRequest(request: string): boolean {
+  return /(?:实操|落地|怎么用|如何用|今天|日常|剧本|步骤).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
+    /(?:驾驭|harness|智能体支架|开发支架).*(?:实操|落地|怎么用|如何用|今天|日常|剧本|步骤)/i.test(request);
 }
 
 function isHarnessRoadmapRequest(request: string): boolean {

@@ -159,6 +159,23 @@ export interface HarnessRoadmapReport {
   steps: HarnessRoadmapStep[];
 }
 
+export type HarnessPlaybookStatus = "ready" | "needs-work";
+
+export interface HarnessPlaybookStep {
+  title: string;
+  status: HarnessPlaybookStatus;
+  userValue: string;
+  howToUse: string;
+  missingAction: string;
+}
+
+export interface HarnessPlaybookReport {
+  summary: string;
+  focus: string;
+  loopReadiness: string;
+  steps: HarnessPlaybookStep[];
+}
+
 const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness/README.md"];
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
@@ -290,9 +307,126 @@ export function renderHarnessMethod(): string {
     "3. 反馈：开发后自动验证，失败摘要先回到开发代理修复，再交给独立审查代理复核。",
     "4. 记忆：每个阶段写进度，踩坑写经验；下一轮先读取，不从零猜。",
     "",
+    "落地原则：长期事实保持短小，反复流程沉淀为技能，必须执行或必须阻止的动作交给确定性护栏，研究和审查交给独立角色，循环自动化最后再上。",
     "14 步路线可以压缩为一个顺序：先让一次人工触发的任务稳定，再补项目指南、权限档案、审查子代理、技能、钩子和记忆，最后再考虑循环自动跑。",
     "普通用户只需要说：补齐驾驭系统。ccli 会把这些支架放进项目里，并用中文告诉你还缺什么。",
     "如果某次结果踩坑，只需要说：以后不要再这样。ccli 会把它沉淀成下一轮可用的项目经验。"
+  ].join("\n");
+}
+
+export function analyzeHarnessPlaybook(context: HarnessContext, progress?: HarnessProgress): HarnessPlaybookReport {
+  const readiness = analyzeHarnessReadiness(context, progress);
+  const hasFacts = context.standingFacts.length > 0;
+  const hasRules = context.rules.length >= 2;
+  const hasStartupChecklist = context.artifacts.some((document) => document.path.endsWith("init-check.json"));
+  const hasPermissions = Boolean(
+    context.settings?.permissions?.autoApprove?.length &&
+      context.settings.permissions.confirm?.length &&
+      context.settings.permissions.deny?.length
+  );
+  const hasBlockingHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.blocks));
+  const hasQualityHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.id === "quality-feedback"));
+  const hasReviewHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.id === "review-before-ship"));
+  const hasMemoryHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.id === "session-memory-writer"));
+  const hasReviewer = context.agents.some((agent) => agent.path.endsWith("reviewer.md"));
+  const hasEvaluator = context.agents.some((agent) => agent.path.endsWith("eval-runner.md"));
+  const hasSkills = context.skills.length > 0;
+  const hasMemory = context.memories.length > 0 || Boolean(context.memory) || Boolean(progress);
+  const hasLessons = context.memories.some((document) => document.path === LESSONS_FILE);
+  const hasCompactToolBudget = context.toolBudget.length >= 7 && context.toolBudget.every((budget) => budget.allowedTools.length <= 3);
+
+  const steps: HarnessPlaybookStep[] = [
+    playbookStep(
+      "开工前先定边界",
+      hasFacts && hasRules && hasStartupChecklist,
+      "系统不用每次重新猜项目目标、表达方式和安全底线。",
+      "先确认一个最重要的用户结果，再读取项目事实、产品规则和开工检查。",
+      "补齐项目指南、产品规则和开工检查。"
+    ),
+    playbookStep(
+      "每个阶段只给少量工具",
+      hasCompactToolBudget,
+      "模型更少分心，知道当前只该了解、计划、实现、验证或审查。",
+      "了解阶段只读，开发阶段小范围改，验证阶段只检查结果，交付阶段只准备审查入口。",
+      "把阶段工具收敛到少数必要动作。"
+    ),
+    playbookStep(
+      "高影响动作先被护栏拦住",
+      hasPermissions && hasBlockingHook,
+      "删除、密钥、发布、生产和主线覆盖不会靠模型自觉判断。",
+      "低风险动作自动推进；影响大、不可逆或远程动作先停下来，用中文说明影响后再让用户决定。",
+      "补齐权限档案和危险动作护栏。"
+    ),
+    playbookStep(
+      "验证失败先回流修复",
+      hasQualityHook && hasEvaluator,
+      "失败不会直接扔给普通用户，而是变成开发代理能处理的反馈。",
+      "改动后先验证；失败时整理影响和最可能原因，最多先做一次最小修复，再重新验证。",
+      "补齐验证执行角色和改动后质量反馈。"
+    ),
+    playbookStep(
+      "交付前独立复核",
+      hasReviewer && hasReviewHook,
+      "开发和评估分开，减少自己证明自己正确。",
+      "保存或交付前让独立角色检查用户目标、验证结果、风险和未覆盖项。",
+      "补齐独立审查角色和交付前复核护栏。"
+    ),
+    playbookStep(
+      "结束前写下现场",
+      hasMemory && hasMemoryHook,
+      "上下文断了也能接着做，不需要用户重新解释全过程。",
+      "每次任务结束或中断前记录当前阶段、已确认事实、验证状态和下一步。",
+      "补齐会话结束记忆写入，并完成一次任务进度落盘。"
+    ),
+    playbookStep(
+      "把踩坑变成下一轮检查",
+      hasLessons && hasSkills,
+      "同类问题下次会先被提醒，不再只靠模型记性。",
+      "用户说以后不要再这样时先写入经验；反复有效的经验再沉淀成通用技能。",
+      "补齐失败经验库和至少一个可复用技能。"
+    )
+  ];
+
+  const gaps = steps.filter((step) => step.status === "needs-work");
+  const summary =
+    gaps.length === 0
+      ? "当前项目已经具备一套可执行的驾驭剧本，可以承接较长任务。"
+      : readiness.level === "usable"
+        ? "当前项目可以使用驾驭方法，但还需要补齐若干环节才能稳定跑长任务。"
+        : "当前项目还在打基础，建议先把支架补齐，再交给模型做复杂任务。";
+  const focus = gaps[0] ? `${gaps[0].title}：${gaps[0].missingAction}` : "先用一次真实任务跑完整闭环，再把有效做法复用到下一个项目。";
+  const loopReadiness =
+    readiness.level === "strong" && gaps.length <= 1
+      ? "可以考虑小范围定时检查，但仍应让独立复核决定是否完成。"
+      : "暂时不要上自动循环；先让一次人工触发的任务稳定通过验证和复核。";
+
+  return {
+    summary,
+    focus,
+    loopReadiness,
+    steps
+  };
+}
+
+export function renderHarnessPlaybook(report: HarnessPlaybookReport): string {
+  const statusText: Record<HarnessPlaybookStatus, string> = {
+    ready: "已就绪",
+    "needs-work": "先补齐"
+  };
+  return [
+    `驾驭实操剧本：${report.summary}`,
+    `当前重点：${report.focus}`,
+    `自动循环判断：${report.loopReadiness}`,
+    "今天这样使用：",
+    ...report.steps.map((step, index) =>
+      [
+        `${index + 1}. ${statusText[step.status]}｜${step.title}：${step.userValue}`,
+        `做法：${step.howToUse}`,
+        step.status === "needs-work" ? `先补：${step.missingAction}` : ""
+      ]
+        .filter(Boolean)
+        .join(" ")
+    )
   ].join("\n");
 }
 
@@ -527,6 +661,22 @@ function roadmapStep(
     status: ready ? "ready" : number <= 10 ? "next" : "later",
     userValue,
     nextAction
+  };
+}
+
+function playbookStep(
+  title: string,
+  ready: boolean,
+  userValue: string,
+  howToUse: string,
+  missingAction: string
+): HarnessPlaybookStep {
+  return {
+    title,
+    status: ready ? "ready" : "needs-work",
+    userValue,
+    howToUse,
+    missingAction
   };
 }
 

@@ -13,6 +13,8 @@ import {
   recordHarnessLesson,
   readHarnessProgress,
   renderHarnessMethod,
+  analyzeHarnessPlaybook,
+  renderHarnessPlaybook,
   renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessRoadmap,
@@ -182,8 +184,44 @@ describe("harness", () => {
     const method = renderHarnessMethod();
     expect(method).toContain("模型 + 外部支架");
     expect(method).toContain("权限档案");
+    expect(method).toContain("确定性护栏");
     expect(method).toContain("14 步路线");
     expect(method).toContain("以后不要再这样");
+  });
+
+  it("turns harness engineering into a plain Chinese playbook", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-playbook-"));
+    try {
+      await writeFile(join(root, "AGENTS.md"), "项目固定事实：所有用户可见结果都用中文。\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness", "rules"), { recursive: true });
+      await writeFile(join(root, ".ccli", "harness", "rules", "safety.md"), "高影响动作必须确认。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "rules", "product.md"), "普通用户只看中文产品结果。\n", "utf8");
+      await writeFile(
+        join(root, ".ccli", "harness", "settings.json"),
+        JSON.stringify({
+          permissions: {
+            autoApprove: ["读取项目说明"],
+            confirm: ["推送分支"],
+            deny: ["无确认发布"]
+          }
+        }),
+        "utf8"
+      );
+
+      const context = await loadHarnessContext(root);
+      const report = analyzeHarnessPlaybook(context);
+      const rendered = renderHarnessPlaybook(report);
+
+      expect(report.steps).toHaveLength(7);
+      expect(rendered).toContain("驾驭实操剧本");
+      expect(rendered).toContain("验证失败先回流修复");
+      expect(rendered).toContain("自动循环判断");
+      expect(rendered).toContain("先补齐");
+      expect(rendered).not.toMatch(/\bccli\s/);
+      expect(rendered).not.toContain(".ccli/");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("maps the 14-step harness roadmap to current project readiness", async () => {
