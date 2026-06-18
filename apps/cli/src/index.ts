@@ -8,7 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
-import { hardwareManifest, healthSummary, renderHealthReport, renderStarterIdeas, renderWelcome, starterIdeas } from "@ccli/experience";
+import { hardwareManifest, healthSummary, renderHealthReport, renderStarterIdeas, renderWelcome, starterIdeas, type StarterIdea } from "@ccli/experience";
 import { analyzeHarnessReadiness, loadHarnessContext, readHarnessProgress, renderHarnessReadiness, renderHarnessSummary } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
@@ -276,18 +276,47 @@ program
 
 program
   .command("ideas")
+  .argument("[idea]", "产品场景编号或名称")
   .description("查看适合老板直接开工的产品场景")
   .option("--json", "输出给硬件或自动化使用的结构化结果")
-  .action(async (options: { json?: boolean }) => {
-    await withCli(async () => {
-      const ideas = starterIdeas();
-      if (options.json) {
-        print(JSON.stringify(ideas, null, 2));
-        return;
-      }
-      print(renderStarterIdeas(ideas));
-    });
-  });
+  .option("--name <name>", "项目名称")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--no-preview", "只生成首版，不打开预览")
+  .option("--no-open", "启动预览但不自动打开浏览器")
+  .option("--with-pr", "完成后尝试创建团队审查入口")
+  .action(
+    async (
+      ideaKey: string | undefined,
+      options: { json?: boolean; name?: string; host?: string; port?: string; preview?: boolean; open?: boolean; withPr?: boolean }
+    ) => {
+      await withCli(async ({ renderer, cwd, expert, yes }) => {
+        const ideas = starterIdeas();
+        if (ideaKey) {
+          await launchStarterIdea({
+            key: ideaKey,
+            ideas,
+            cwd,
+            renderer,
+            expert,
+            yes,
+            name: options.name,
+            preview: options.preview !== false,
+            previewOpenBrowser: options.open !== false,
+            previewHost: options.host ?? "127.0.0.1",
+            previewPortText: options.port ?? "5173",
+            withPr: Boolean(options.withPr)
+          });
+          return;
+        }
+        if (options.json) {
+          print(JSON.stringify(ideas, null, 2));
+          return;
+        }
+        print(renderStarterIdeas(ideas));
+      });
+    }
+  );
 
 program
   .command("open")
@@ -806,6 +835,24 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  const ideaKey = ideaKeyFromNaturalRequest(request);
+  if (ideaKey) {
+    await launchStarterIdea({
+      key: ideaKey,
+      ideas: starterIdeas(),
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      preview: true,
+      previewOpenBrowser: true,
+      previewHost: "127.0.0.1",
+      previewPortText: "5173",
+      withPr: false
+    });
+    return true;
+  }
+
   if (isIdeaCatalogRequest(request)) {
     print(renderStarterIdeas(starterIdeas()));
     return true;
@@ -836,6 +883,66 @@ async function runNaturalLanguageIntent(inputValue: {
   }
 
   return false;
+}
+
+async function launchStarterIdea(inputValue: {
+  key: string;
+  ideas: StarterIdea[];
+  cwd: string;
+  renderer: ProductRenderer;
+  expert: boolean;
+  yes: boolean;
+  name?: string;
+  preview: boolean;
+  previewOpenBrowser: boolean;
+  previewHost: string;
+  previewPortText: string;
+  withPr: boolean;
+}): Promise<void> {
+  const selected = resolveStarterIdea(inputValue.key, inputValue.ideas);
+  if (!selected) {
+    print(inputValue.renderer.render({ type: "risk", message: "没有找到这个产品场景。可以先查看产品场景库。", severity: "warning" }));
+    print(renderStarterIdeas(inputValue.ideas));
+    return;
+  }
+  const port = Number(inputValue.previewPortText);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    print(inputValue.renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+    return;
+  }
+
+  print(inputValue.renderer.render({ type: "info", message: `已选择：${selected.title}。开始生成首版产品。` }));
+  await createProductFromIdea({
+    cwd: inputValue.cwd,
+    idea: selected.say,
+    name: inputValue.name ?? selected.title,
+    install: false,
+    preview: inputValue.preview,
+    previewAutoInstall: true,
+    previewOpenBrowser: inputValue.previewOpenBrowser,
+    previewHost: inputValue.previewHost,
+    previewPort: port,
+    withPr: inputValue.withPr,
+    expert: inputValue.expert,
+    yes: inputValue.yes,
+    renderer: inputValue.renderer
+  });
+}
+
+function resolveStarterIdea(key: string, ideas: StarterIdea[]): StarterIdea | undefined {
+  const trimmed = key.trim();
+  const index = Number(normalizeChineseNumber(trimmed));
+  if (Number.isInteger(index) && index >= 1 && index <= ideas.length) {
+    return ideas[index - 1];
+  }
+  const normalized = trimmed.toLowerCase();
+  return (
+    ideas.find((idea) => idea.id === normalized) ??
+    ideas.find((idea) => idea.title === trimmed) ??
+    ideas.find((idea) => idea.title.includes(trimmed)) ??
+    ideas.find((idea) => idea.say.includes(trimmed)) ??
+    ideas.find((idea) => idea.id.includes(normalized))
+  );
 }
 
 async function installSkillsForProject(inputValue: { cwd: string; renderer: ProductRenderer; expert: boolean; overwrite: boolean }): Promise<void> {
@@ -953,6 +1060,28 @@ function isIdeaCatalogRequest(request: string): boolean {
     /不知道(?:做|开发|创建)什么/.test(request);
 }
 
+function ideaKeyFromNaturalRequest(request: string): string | undefined {
+  if (!/(?:做|创建|开发|生成|选择|选|启动|用|开始)/.test(request)) {
+    return undefined;
+  }
+  const numbered = request.match(/(?:第\s*)?([一二三四五六123456])\s*(?:个|号|款)?(?:模板|场景|产品|方案)?/);
+  if (numbered && /(?:第|模板|场景|产品|方案)/.test(request)) {
+    return numbered[1];
+  }
+  if (!/(?:模板|场景|产品场景|方案)/.test(request)) {
+    return undefined;
+  }
+  const keywordMap: Array<[string, string]> = [
+    ["客户|销售|跟进", "customer"],
+    ["预约|排班|门店|到店", "booking"],
+    ["库存|仓库|补货|出库|入库", "inventory"],
+    ["订单|发货|物流|售后", "orders"],
+    ["财务|收支|收入|支出|回款|现金流", "finance"],
+    ["内容|发布|素材|品牌|文章", "content"]
+  ];
+  return keywordMap.find(([pattern]) => new RegExp(pattern).test(request))?.[1];
+}
+
 function isSkillInstallRequest(request: string): boolean {
   return /(?:补齐|安装|初始化|修复|创建).*(?:开发)?(?:技能|skill|skills)/i.test(request) || /(?:技能|skill|skills).*(?:补齐|安装|初始化|修复|创建)/i.test(request);
 }
@@ -969,6 +1098,19 @@ function projectKeyFromNaturalRequest(request: string): string | undefined {
     .replace(/(?:能不能|能否|是否|可以|打开|启动|预览|检查|确认|我的|这个|那个|一下|吧|产品|项目|应用|系统|页面)/g, "")
     .trim();
   return key.length >= 2 ? key : undefined;
+}
+
+function normalizeChineseNumber(value: string): string {
+  const cleaned = value.replace(/[第个号款模板场景产品方案\s]/g, "");
+  const map: Record<string, string> = {
+    一: "1",
+    二: "2",
+    三: "3",
+    四: "4",
+    五: "5",
+    六: "6"
+  };
+  return map[cleaned] ?? cleaned;
 }
 
 interface PreviewReadiness {
