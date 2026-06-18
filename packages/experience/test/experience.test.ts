@@ -4,6 +4,7 @@ import {
   createBossApprovalReceipt,
   createBossBrief,
   createBossHome,
+  createBossQuestionCard,
   createBossReportCard,
   createExperienceEvent,
   createHardwareResponse,
@@ -17,6 +18,7 @@ import {
   renderBossApprovalReceipt,
   renderBossBrief,
   renderBossHome,
+  renderBossQuestionCard,
   renderBossReportCard,
   renderNextActions,
   renderResumeGuide,
@@ -36,6 +38,7 @@ describe("experience", () => {
     expect(text).toContain("ccli ready");
     expect(text).toContain("ccli setup");
     expect(text).toContain("ccli try");
+    expect(text).toContain("ccli questions");
     expect(text).toContain("ccli brief");
     expect(text).toContain("ccli next");
     expect(text).toContain("ccli go");
@@ -49,6 +52,7 @@ describe("experience", () => {
     expect(text).toContain("ccli chat");
     expect(text).toContain("下一步怎么办");
     expect(text).toContain("试用一下");
+    expect(text).toContain("帮我澄清需求");
     expect(text).toContain("整理业务简报");
     expect(text).toContain("给我几个产品模板");
     expect(text).toContain("做第 3 个模板");
@@ -189,6 +193,26 @@ describe("experience", () => {
     expect(text).not.toContain("```");
   });
 
+  it("renders a boss question card before writing a brief", () => {
+    const card = createBossQuestionCard({
+      productName: "客户跟进系统",
+      goal: "做一个客户管理系统，能记录跟进和提醒"
+    });
+    const text = renderBossQuestionCard(card);
+
+    expect(card.readyEnough).toBe(true);
+    expect(card.questions).toHaveLength(3);
+    expect(text).toContain("老板需求追问卡");
+    expect(text).toContain("谁每天会用这个产品");
+    expect(text).toContain("打开后第一眼最想看到什么");
+    expect(text).toContain("什么情况算首版通过");
+    expect(text).toContain("整理业务简报");
+    expect(text).toContain("直接说：做一个客户管理系统，能记录跟进和提醒");
+    expect(text).not.toContain("diff");
+    expect(text).not.toContain("stack");
+    expect(text).not.toContain("```");
+  });
+
   it("renders a boss approval receipt for sign-off", () => {
     const receipt = createBossApprovalReceipt({
       productName: "客户跟进系统",
@@ -282,6 +306,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("confirmation-empty");
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
+    expect(hardwareManifest().output).toContain("question-card");
     expect(hardwareManifest().output).toContain("brief-card");
     expect(hardwareManifest().output).toContain("approval-receipt");
     expect(hardwareManifest().output).toContain("report-card");
@@ -307,6 +332,7 @@ describe("experience", () => {
     expect(schema.kinds).toContain("confirmation-empty");
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
+    expect(schema.kinds).toContain("question-card");
     expect(schema.kinds).toContain("brief-card");
     expect(schema.kinds).toContain("approval-receipt");
     expect(schema.kinds).toContain("report-card");
@@ -318,6 +344,7 @@ describe("experience", () => {
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "question-card")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "brief-card")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "approval-receipt")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "report-card")).toBe(true);

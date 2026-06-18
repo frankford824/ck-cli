@@ -19,6 +19,7 @@
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli home` 提供老板开箱驾驶舱：当前状态、最建议动作、可选动作和常见模板放在一个中文首页。
+- `ccli questions` 提供老板需求追问卡：把模糊想法变成 3 个普通用户能回答的问题。
 - `ccli brief` 提供老板业务简报：把一句话想法整理成目标、使用者、首版范围和验收标准。
 - `ccli approve` 提供老板验收凭证：记录“我已看过并通过”，交付时自动带上凭证。
 - `ccli report` 提供老板交付卡：把当前产品、目标、进展依据和下一步说法压成一页中文汇报。
@@ -49,6 +50,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli home
+ccli questions "做一个客户管理系统，能记录跟进和提醒"
 ccli brief "做一个客户管理系统，能记录跟进和提醒"
 ccli report
 ccli approve "首屏和提醒逻辑可以"
@@ -110,6 +112,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli home
+ccli questions "做一个客户管理系统"
 ccli brief "做一个客户管理系统"
 ccli report
 ccli ready
@@ -153,6 +156,7 @@ ccli harness --expert
 ccli "取消"
 ccli memory search "登录页面" --expert
 ccli hardware --expert
+ccli hardware "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒" --json
 ccli hardware "整理业务简报：做一个客户管理系统，能记录跟进和提醒" --json
 ccli hardware "记录验收通过：首屏和提醒逻辑可以" --json
 ccli hardware "给我一个进度汇报" --json
@@ -168,6 +172,15 @@ ccli home
 ```
 
 它会把当前状态、最建议动作、可选动作和常见开工模板放在同一个中文首页。
+
+如果想法还很粗，可以先让 ccli 像产品经理一样追问 3 个关键问题：
+
+```bash
+ccli questions "做一个客户管理系统，能记录跟进和提醒"
+ccli "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒"
+```
+
+它只问“谁每天用、第一眼看什么、怎样算首版通过”，不会要求用户理解代码、数据库或技术方案。
 
 如果想先把口头想法变成外包合同一样清楚的目标，可以输入：
 
@@ -537,6 +550,7 @@ ccli harness --expert
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
+- 老板需求追问卡，可用 `ccli questions --json` 读取
 - 老板业务简报，可用 `ccli brief --json` 读取
 - 老板验收凭证，可用 `ccli approval --json` 读取
 - 老板交付卡，可用 `ccli report --json` 读取
@@ -557,6 +571,7 @@ ccli harness --expert
 
 ```bash
 ccli hardware "下一步怎么办" --json
+ccli hardware "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒" --json
 ccli hardware "整理业务简报：做一个客户管理系统，能记录跟进和提醒" --json
 ccli hardware "记录验收通过：首屏和提醒逻辑可以" --json
 ccli hardware "给我一个进度汇报" --json

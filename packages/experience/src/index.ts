@@ -124,6 +124,24 @@ export interface BossBrief {
   ask: string;
 }
 
+export interface BossQuestion {
+  id: string;
+  question: string;
+  why: string;
+  examples: string[];
+}
+
+export interface BossQuestionCard {
+  title: string;
+  summary: string;
+  productName?: string;
+  goal?: string;
+  questions: BossQuestion[];
+  readyEnough: boolean;
+  actions: NextAction[];
+  ask: string;
+}
+
 export type HealthStatus = "ready" | "action-needed" | "optional";
 
 export interface HealthCheckItem {
@@ -205,6 +223,7 @@ export function welcomeCard(): WelcomeCard {
       "继续上次任务：ccli resume",
       "首次设置：ccli setup",
       "安全试用：ccli try",
+      "需求追问：ccli questions \"做一个客户管理系统\"",
       "整理业务简报：ccli brief \"做一个客户管理系统\"",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
@@ -222,6 +241,7 @@ export function welcomeCard(): WelcomeCard {
     ],
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
+      "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒",
       "整理业务简报：做一个客户管理系统，能记录跟进和提醒",
       "下一步怎么办",
       "试用一下",
@@ -666,6 +686,111 @@ export function renderBossBrief(brief: BossBrief): string {
   return lines.join("\n").trim();
 }
 
+export function createBossQuestionCard(input: {
+  goal?: string;
+  productName?: string;
+  brief?: BossBrief;
+}): BossQuestionCard {
+  const goal = cleanText(input.goal ?? input.brief?.goal);
+  const productName = cleanText(input.productName ?? input.brief?.productName);
+  const matched = goal ? starterIdeas().find((idea) => goal.includes(idea.title) || goal.includes(idea.id) || keywordMatch(goal, idea)) : undefined;
+  const readyEnough = Boolean(input.brief || (goal && goal.length >= 8));
+  const focusName = productName ?? matched?.title ?? "这个想法";
+  const fallbackGoal = goal ?? "做一个客户管理系统，能记录跟进和提醒";
+  const summary = input.brief
+    ? "已有业务简报，可以直接开工；如果还想补充，也可以先回答下面 3 个问题。"
+    : goal
+      ? `我先把「${focusName}」拆成 3 个关键问题，回答后就能生成更准的业务简报。`
+      : "你不用先写方案，先回答 3 个问题，就能把模糊想法变成可开工需求。";
+
+  const actions = input.brief
+    ? [
+        {
+          id: "start-product",
+          title: "开始生成首版",
+          reason: "业务简报已经能指导第一轮开发。",
+          say: input.brief.goal
+        },
+        {
+          id: "revise-brief",
+          title: "补充业务简报",
+          reason: "如果问题答案改变了目标，可以先更新简报。",
+          say: `整理业务简报：${input.brief.goal}`
+        },
+        {
+          id: "accept-current",
+          title: "按清单验收",
+          reason: "已有产品时，可以直接按老板标准看效果。",
+          say: "怎么验收当前产品"
+        }
+      ]
+    : [
+        {
+          id: "make-brief",
+          title: "整理业务简报",
+          reason: "回答不完整也可以先生成一版清楚的开工说明。",
+          say: `整理业务简报：${fallbackGoal}`
+        },
+        {
+          id: "ideas",
+          title: "先看产品模板",
+          reason: "如果还没想清楚，可以从常见场景里选一个。",
+          say: "给我几个产品模板"
+        },
+        ...(goal
+          ? [
+              {
+                id: "start-product",
+                title: "开始生成首版",
+                reason: "目标已经有方向，可以先做可看的第一版。",
+                say: goal
+              }
+            ]
+          : [])
+      ];
+
+  return {
+    title: "老板需求追问卡",
+    summary,
+    productName,
+    goal,
+    questions: bossQuestionsForGoal(goal, matched),
+    readyEnough,
+    actions,
+    ask: readyEnough
+      ? "如果这 3 个答案已经清楚，就直接说：整理业务简报。"
+      : "先按直觉回答这 3 个问题，不需要使用任何技术词。"
+  };
+}
+
+export function renderBossQuestionCard(card: BossQuestionCard): string {
+  const lines = [card.title, "", card.summary];
+  if (card.productName) {
+    lines.push(`产品：${card.productName}`);
+  }
+  if (card.goal) {
+    lines.push(`想法：${card.goal}`);
+  }
+  lines.push(`当前判断：${card.readyEnough ? "信息基本够，可以先整理简报或生成首版。" : "信息还偏模糊，先回答下面几个问题。"}`);
+
+  lines.push("", "请先回答：");
+  for (const [index, question] of card.questions.entries()) {
+    lines.push(`${index + 1}. ${question.question}`);
+    lines.push(`为什么问：${question.why}`);
+    lines.push(`可以这样答：${question.examples.join("、")}`);
+  }
+
+  lines.push("", "可以直接说：");
+  for (const [index, action] of card.actions.entries()) {
+    lines.push(`${index + 1}. ${action.title}`);
+    lines.push(`原因：${action.reason}`);
+    lines.push(`直接说：${action.say}`);
+  }
+
+  lines.push("", card.ask);
+  return lines.join("\n").trim();
+}
+
 export function healthSummary(items: HealthCheckItem[]): HealthReport {
   const actionCount = items.filter((item) => item.status === "action-needed").length;
   const summary =
@@ -1000,6 +1125,7 @@ export function hardwareManifest() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "question-card",
       "brief-card",
       "approval-receipt",
       "report-card",
@@ -1012,7 +1138,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "resume", "brief", "approval", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "question", "brief", "approval", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -1053,6 +1179,7 @@ export function hardwareSchema() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "question-card",
       "brief-card",
       "approval-receipt",
       "report-card",
@@ -1163,6 +1290,32 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "resume-guide" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "我先把这个想法拆成 3 个关键问题，回答后就能生成更准的业务简报。",
+        screen: "老板需求追问卡\n\n想法：做一个客户管理系统，能记录跟进和提醒\n当前判断：信息基本够，可以先整理简报或生成首版。\n\n请先回答：\n1. 谁每天会用这个产品？\n可以这样答：老板、销售、客服、门店员工\n2. 打开后第一眼最想看到什么？\n可以这样答：待跟进客户、高意向客户、今天要联系的人\n3. 什么情况算首版通过？\n可以这样答：能看懂重点、能看到该处理的提醒",
+        choices: ["整理业务简报", "开始生成首版", "先看产品模板"],
+        actions: [
+          {
+            id: "make-brief",
+            label: "整理业务简报",
+            kind: "utterance",
+            say: "整理业务简报：做一个客户管理系统，能记录跟进和提醒",
+            requiresConfirmation: false
+          },
+          {
+            id: "start-product",
+            label: "开始生成首版",
+            kind: "utterance",
+            say: "做一个客户管理系统，能记录跟进和提醒",
+            requiresConfirmation: true
+          }
+        ]
+      }),
+      { kind: "question-card" }
     ),
     createHardwareResponse(
       createExperienceEvent({
@@ -1487,6 +1640,83 @@ function defaultReportActions(status: BossReportStatus, canPreview: boolean): Ne
     say: "下一步怎么办"
   });
   return actions;
+}
+
+function bossQuestionsForGoal(goal: string | undefined, matched: StarterIdea | undefined): BossQuestion[] {
+  return [
+    {
+      id: "daily-user",
+      question: "谁每天会用这个产品？",
+      why: "先确定真正使用的人，页面重点和说话方式才不会跑偏。",
+      examples: audienceExamples(goal, matched)
+    },
+    {
+      id: "first-screen",
+      question: "打开后第一眼最想看到什么？",
+      why: "首屏决定老板和员工能不能马上判断产品有用。",
+      examples: firstScreenExamples(goal, matched)
+    },
+    {
+      id: "first-version-pass",
+      question: "什么情况算首版通过？",
+      why: "提前定好通过标准，后面就能减少来回解释和返工。",
+      examples: acceptanceExamples(goal, matched)
+    }
+  ];
+}
+
+function audienceExamples(goal: string | undefined, matched: StarterIdea | undefined): string[] {
+  return uniqueExampleItems([
+    matched?.bestFor,
+    goal && /客户|销售|crm/i.test(goal) ? "老板、销售、客服、门店员工" : undefined,
+    goal && /预约|排班|门店|诊所|美业/.test(goal) ? "前台、店长、服务人员、预约客户" : undefined,
+    goal && /库存|仓库|补货|出库/.test(goal) ? "仓库、采购、店长、运营人员" : undefined,
+    goal && /订单|发货|物流|售后/.test(goal) ? "客服、发货员、售后、老板" : undefined,
+    goal && /财务|收支|回款|现金流/.test(goal) ? "老板、财务、项目负责人" : undefined,
+    "老板自己、销售、前台、仓库、客户"
+  ], 5);
+}
+
+function firstScreenExamples(goal: string | undefined, matched: StarterIdea | undefined): string[] {
+  return uniqueExampleItems([
+    matched?.firstCheck.replace(/^打开后先看是否能/, "").replace(/^打开后先看/, "").replace(/。$/, ""),
+    goal && /客户|销售|crm/i.test(goal) ? "待跟进客户、高意向客户、今天要联系的人" : undefined,
+    goal && /预约|排班|门店|诊所|美业/.test(goal) ? "今日预约、空闲时间、临近到店提醒" : undefined,
+    goal && /库存|仓库|补货|出库/.test(goal) ? "低库存、今日出库、需要补货的商品" : undefined,
+    goal && /订单|发货|物流|售后/.test(goal) ? "待发货订单、异常订单、售后风险" : undefined,
+    goal && /财务|收支|回款|现金流/.test(goal) ? "今日收支、待回款、现金流风险" : undefined,
+    "待办重点、风险提醒、今天最该处理的事"
+  ], 5);
+}
+
+function acceptanceExamples(goal: string | undefined, matched: StarterIdea | undefined): string[] {
+  return uniqueExampleStrings([
+    matched?.firstCheck,
+    "能看懂重点",
+    goal?.includes("提醒") ? "能看到该处理的提醒" : undefined,
+    goal && /新增|记录|录入|客户|订单|库存/.test(goal) ? "能新增或记录一条业务信息" : undefined,
+    "手机上也能看清楚",
+    "老板不解释也能判断是否有用"
+  ], 5);
+}
+
+function uniqueExampleItems(values: Array<string | undefined>, limit: number): string[] {
+  return uniqueStrings(
+    values.flatMap((value) =>
+      cleanExample(value)
+        ?.split(/[、，,]|和/)
+        .map((part) => cleanExample(part))
+        .filter((part): part is string => Boolean(part)) ?? []
+    )
+  ).slice(0, limit);
+}
+
+function uniqueExampleStrings(values: Array<string | undefined>, limit: number): string[] {
+  return uniqueStrings(values.map((value) => cleanExample(value))).slice(0, limit);
+}
+
+function cleanExample(value?: string): string | undefined {
+  return cleanText(value)?.replace(/[。；;]+$/g, "");
 }
 
 function firstCheckFromGoal(goal?: string): string | undefined {
