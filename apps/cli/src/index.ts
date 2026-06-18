@@ -8,7 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
-import { hardwareManifest, healthSummary, renderHealthReport, renderWelcome } from "@ccli/experience";
+import { hardwareManifest, healthSummary, renderHealthReport, renderStarterIdeas, renderWelcome, starterIdeas } from "@ccli/experience";
 import { analyzeHarnessReadiness, loadHarnessContext, readHarnessProgress, renderHarnessReadiness, renderHarnessSummary } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
@@ -271,6 +271,21 @@ program
   .action(async (options: { json?: boolean }) => {
     await withCli(async ({ renderer, expert }) => {
       await renderKnownProjects({ renderer, expert, json: Boolean(options.json) });
+    });
+  });
+
+program
+  .command("ideas")
+  .description("查看适合老板直接开工的产品场景")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async () => {
+      const ideas = starterIdeas();
+      if (options.json) {
+        print(JSON.stringify(ideas, null, 2));
+        return;
+      }
+      print(renderStarterIdeas(ideas));
     });
   });
 
@@ -791,6 +806,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isIdeaCatalogRequest(request)) {
+    print(renderStarterIdeas(starterIdeas()));
+    return true;
+  }
+
   if (isSkillInstallRequest(request)) {
     await installSkillsForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
     return true;
@@ -925,6 +945,12 @@ function isProjectOpenCheckRequest(request: string): boolean {
     /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request) ||
     /(?:检查|确认|看看).*(?:上次|最近|之前|产品|项目|应用|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request)
   );
+}
+
+function isIdeaCatalogRequest(request: string): boolean {
+  return /(?:给我|看看|查看|推荐|列出|有什么).*(?:产品)?(?:模板|场景|灵感|案例|能做什么|可以做什么)/.test(request) ||
+    /(?:产品)?(?:模板|场景|灵感|案例).*(?:给我|看看|查看|推荐|列出)/.test(request) ||
+    /不知道(?:做|开发|创建)什么/.test(request);
 }
 
 function isSkillInstallRequest(request: string): boolean {
