@@ -30,4 +30,22 @@ describe("TaskOrchestrator", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("generates a useful inventory starter without model credentials", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-agent-"));
+    try {
+      await createTemplateProject(cwd, "inventory-demo");
+      await new TaskOrchestrator().run({
+        cwd,
+        requirement: "做一个库存看板，能看低库存和出库提醒"
+      });
+
+      const app = await readFile(join(cwd, "src", "App.tsx"), "utf8");
+      expect(app).toContain("低库存预警");
+      expect(app).toContain("生成补货单");
+      expect(app).toContain("今日出库");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
