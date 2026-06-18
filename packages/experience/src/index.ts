@@ -46,6 +46,16 @@ export interface InstallSuccessCard {
   fallbackSay: string;
 }
 
+export interface PlainHelpCard {
+  title: string;
+  summary: string;
+  sections: Array<{
+    title: string;
+    says: string[];
+  }>;
+  footer: string;
+}
+
 export interface StarterIdea {
   id: string;
   title: string;
@@ -321,6 +331,50 @@ export function renderInstallSuccess(card: InstallSuccessCard = installSuccessCa
     "",
     card.fallbackSay
   ].join("\n");
+}
+
+export function plainHelpCard(): PlainHelpCard {
+  return {
+    title: "ccli 使用帮助",
+    summary: "你不用记命令，也不用懂代码。把想要的产品结果说出来，ccli 会继续追问、生成、验证、验收和交付。",
+    sections: [
+      {
+        title: "第一次打开",
+        says: ["打开开箱首页", "一步步问我，然后开工", "试用一下", "下一步怎么办"]
+      },
+      {
+        title: "开始做产品",
+        says: [
+          "做一个客户管理系统，能记录跟进和提醒",
+          "给我几个产品模板",
+          "做第 3 个模板",
+          "按简报生成首版"
+        ]
+      },
+      {
+        title: "看效果和继续改",
+        says: ["打开当前产品页面", "怎么验收当前产品", "我想改一下：首页重点不够明显", "我满意，准备交付"]
+      },
+      {
+        title: "找回现场",
+        says: ["继续上次任务", "查看我的产品", "打开我上次做的系统", "检查当前电脑是否准备好"]
+      }
+    ],
+    footer: "如果不确定，直接说：下一步怎么办。"
+  };
+}
+
+export function renderPlainHelp(card: PlainHelpCard = plainHelpCard()): string {
+  const lines = [card.title, "", card.summary, ""];
+  for (const section of card.sections) {
+    lines.push(section.title);
+    for (const say of section.says) {
+      lines.push(`- ${say}`);
+    }
+    lines.push("");
+  }
+  lines.push(card.footer);
+  return lines.join("\n").trim();
 }
 
 export function starterIdeas(): StarterIdea[] {

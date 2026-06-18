@@ -159,6 +159,28 @@ export interface HarnessRoadmapReport {
   steps: HarnessRoadmapStep[];
 }
 
+export type HarnessLoopReadinessLevel = "ready" | "manual-only" | "blocked";
+
+export interface HarnessLoopCheck {
+  name: string;
+  ready: boolean;
+  required: boolean;
+  userValue: string;
+  missingAction: string;
+}
+
+export interface HarnessLoopReadinessReport {
+  level: HarnessLoopReadinessLevel;
+  canRunUnattended: boolean;
+  summary: string;
+  safeScope: string;
+  cadence: string;
+  stopCondition: string;
+  hardStops: string[];
+  nextSteps: string[];
+  checks: HarnessLoopCheck[];
+}
+
 export type HarnessPlaybookStatus = "ready" | "needs-work";
 
 export interface HarnessPlaybookStep {
@@ -179,7 +201,7 @@ export interface HarnessPlaybookReport {
 const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness/README.md"];
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
-const ARTIFACT_FILES = [".ccli/harness/feature-list.json", ".ccli/harness/init-check.json", ".ccli/harness/ROADMAP.md"];
+const ARTIFACT_FILES = [".ccli/harness/feature-list.json", ".ccli/harness/init-check.json", ".ccli/harness/loop-gate.json", ".ccli/harness/ROADMAP.md"];
 const AGENT_FILES = [".ccli/harness/agents/reviewer.md", ".ccli/harness/agents/eval-runner.md"];
 const SETTINGS_FILE = ".ccli/harness/settings.json";
 const HOOKS_FILE = ".ccli/harness/hooks.json";
@@ -520,6 +542,149 @@ export function renderHarnessRoadmap(report: HarnessRoadmapReport): string {
     .join("\n");
 }
 
+export function analyzeHarnessLoopReadiness(context: HarnessContext, progress?: HarnessProgress): HarnessLoopReadinessReport {
+  const hasFactsAndRules = Boolean(context.standingFacts.length && context.rules.length >= 2);
+  const hasStartupChecklist = context.artifacts.some((document) => document.path.endsWith("init-check.json"));
+  const hasLoopGate = context.artifacts.some((document) => document.path.endsWith("loop-gate.json"));
+  const hasPermissions = Boolean(
+    context.settings?.permissions?.autoApprove?.length &&
+      context.settings.permissions.confirm?.length &&
+      context.settings.permissions.deny?.length
+  );
+  const hasBlockingHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.blocks && hook.when === "before-tool"));
+  const hasQualityFeedback = Boolean(
+    context.hookPlan?.hooks.some((hook) => hook.id === "quality-feedback") &&
+      context.agents.some((agent) => agent.path.endsWith("eval-runner.md"))
+  );
+  const hasIndependentReview = Boolean(
+    context.hookPlan?.hooks.some((hook) => hook.id === "review-before-ship") &&
+      context.agents.some((agent) => agent.path.endsWith("reviewer.md"))
+  );
+  const hasMemory = Boolean(context.memories.length || context.memory || progress);
+  const hasLessonsAndSkills = Boolean(context.memories.some((document) => document.path === LESSONS_FILE) && context.skills.length);
+  const hasPassedRecentRun = progress?.validation === "passed" && ["validate", "review", "save", "ship"].includes(progress.currentStage);
+
+  const checks: HarnessLoopCheck[] = [
+    loopCheck(
+      "开工边界清楚",
+      hasFactsAndRules && hasStartupChecklist,
+      true,
+      "循环开始前不用重新猜项目目标、产品表达和安全底线。",
+      "先补项目指南、产品规则、安全规则和开工检查。"
+    ),
+    loopCheck(
+      "循环闸门明确",
+      hasLoopGate,
+      true,
+      "自动跑之前先知道什么能做、什么必须停、谁来判断完成。",
+      "补一份自动循环闸门，写清范围、停止条件和交付前检查。"
+    ),
+    loopCheck(
+      "权限和危险动作护栏已固定",
+      hasPermissions && hasBlockingHook,
+      true,
+      "删除、密钥、生产、发布和主线覆盖不会靠模型自觉。",
+      "补齐权限档案和执行前危险动作拦截。"
+    ),
+    loopCheck(
+      "验证失败能回流",
+      hasQualityFeedback,
+      true,
+      "失败会先变成开发代理能修复的反馈，而不是直接扩大循环。",
+      "补齐验证执行角色和改动后质量反馈。"
+    ),
+    loopCheck(
+      "完成判断独立于开发代理",
+      hasIndependentReview,
+      true,
+      "不是让同一个开发代理自己宣布完成，而是由独立复核接住结果。",
+      "补齐独立审查角色和交付前复核规则。"
+    ),
+    loopCheck(
+      "现场能跨会话延续",
+      hasMemory,
+      true,
+      "上下文断了也能读回进度、事实和下一步。",
+      "先完成一次进度落盘，或补齐项目状态记忆。"
+    ),
+    loopCheck(
+      "踩坑能沉淀成下一轮输入",
+      hasLessonsAndSkills,
+      false,
+      "循环每跑一轮都能把经验写回规则或技能，越跑越稳。",
+      "补齐失败经验库，并至少保留一个可复用技能。"
+    ),
+    loopCheck(
+      "最近已有通过验证的完整闭环",
+      hasPassedRecentRun,
+      false,
+      "自动循环不是从空白开始，而是复用已经跑通的一次人工任务。",
+      "先人工触发完成一次开发、验证和审查，并写入通过状态。"
+    )
+  ];
+
+  const requiredMissing = checks.filter((check) => check.required && !check.ready);
+  const optionalMissing = checks.filter((check) => !check.required && !check.ready);
+  const level: HarnessLoopReadinessLevel =
+    requiredMissing.length === 0 && hasPassedRecentRun
+      ? "ready"
+      : requiredMissing.length <= 2 && hasFactsAndRules && hasPermissions && hasBlockingHook
+        ? "manual-only"
+        : "blocked";
+  const canRunUnattended = level === "ready";
+
+  return {
+    level,
+    canRunUnattended,
+    summary:
+      level === "ready"
+        ? "可以小范围开启自动巡检，但交付、合并、发布和生产动作仍必须保留硬护栏。"
+        : level === "manual-only"
+          ? "可以继续人工触发的自动开发；暂时不建议无人值守循环。"
+          : "暂不适合自动循环，先把支架补齐，否则只会更快放大错误。",
+    safeScope:
+      level === "ready"
+        ? "适合低风险维护：检查失败、整理小修复、生成审查草稿、更新进度和经验。"
+        : level === "manual-only"
+          ? "只适合由用户明确触发一次任务，再按理解、实现、验证、审查推进。"
+          : "先不进入循环，只做支架初始化、规则补齐和一次人工闭环。",
+    cadence:
+      level === "ready"
+        ? "建议 30 到 60 分钟一次，并设置明确停止条件。"
+        : level === "manual-only"
+          ? "由用户每次手动触发，不定时自动跑。"
+          : "不启用自动节奏。",
+    stopCondition: "验证通过、独立审查通过、没有高影响动作等待确认，才算一轮完成。",
+    hardStops: ["删除大量内容", "密钥或敏感配置", "生产或数据库操作", "发布或部署", "直接改动主线", "验证失败后连续修复仍失败", "独立审查不通过"],
+    nextSteps: [...requiredMissing, ...optionalMissing].slice(0, 3).map((check) => check.missingAction),
+    checks
+  };
+}
+
+export function renderHarnessLoopReadiness(report: HarnessLoopReadinessReport): string {
+  const levelText: Record<HarnessLoopReadinessLevel, string> = {
+    ready: "可以小范围自动循环",
+    "manual-only": "只建议人工触发",
+    blocked: "暂不适合自动循环"
+  };
+  const readyChecks = report.checks.filter((check) => check.ready).map((check) => check.name);
+  const missingChecks = report.checks.filter((check) => !check.ready).map((check) => check.name);
+
+  return [
+    `自动循环就绪：${levelText[report.level]}。`,
+    report.summary,
+    `适合范围：${report.safeScope}`,
+    `运行节奏：${report.cadence}`,
+    `完成标准：${report.stopCondition}`,
+    `必须停下来的情况：${report.hardStops.join("、")}。`,
+    readyChecks.length ? `已具备：${readyChecks.join("、")}。` : "",
+    missingChecks.length ? `还要补齐：${missingChecks.join("、")}。` : "",
+    report.nextSteps.length ? `建议下一步：\n${report.nextSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function progressSnapshot(input: {
   task: string;
   currentStage: HarnessStage;
@@ -676,6 +841,22 @@ function playbookStep(
     status: ready ? "ready" : "needs-work",
     userValue,
     howToUse,
+    missingAction
+  };
+}
+
+function loopCheck(
+  name: string,
+  ready: boolean,
+  required: boolean,
+  userValue: string,
+  missingAction: string
+): HarnessLoopCheck {
+  return {
+    name,
+    ready,
+    required,
+    userValue,
     missingAction
   };
 }

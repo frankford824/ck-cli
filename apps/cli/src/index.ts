@@ -25,6 +25,7 @@ import {
   hardwareSchema,
   healthSummary,
   installSuccessCard,
+  plainHelpCard,
   renderAcceptanceGuide,
   renderBossApprovalReceipt,
   renderBossBrief,
@@ -34,6 +35,7 @@ import {
   renderHealthReport,
   renderInstallSuccess,
   renderNextActions,
+  renderPlainHelp,
   renderResumeGuide,
   renderSetupGuide,
   renderStarterIdeas,
@@ -58,12 +60,14 @@ import {
 } from "@ccli/experience";
 import {
   analyzeHarnessReadiness,
+  analyzeHarnessLoopReadiness,
   analyzeHarnessPlaybook,
   analyzeHarnessRoadmap,
   loadHarnessContext,
   readHarnessProgress,
   recordHarnessLesson,
   renderHarnessMethod,
+  renderHarnessLoopReadiness,
   renderHarnessPlaybook,
   renderHarnessProfile,
   renderHarnessReadiness,
@@ -109,6 +113,15 @@ program
   .option("--cwd <path>", "指定工作目录")
   .option("--expert", "显示专家细节")
   .option("--yes", "确认高影响动作");
+
+program.configureHelp({
+  formatHelp: (command, helper) => {
+    if (command === program) {
+      return `${renderPlainHelp()}\n`;
+    }
+    return helper.formatHelp(command, helper);
+  }
+});
 
 program
   .argument("[request...]", "直接用中文描述想要的结果")
@@ -811,8 +824,9 @@ program
   .option("--method", "查看驾驭方法怎么用")
   .option("--playbook", "查看今天怎么按驾驭方法推进任务")
   .option("--roadmap", "查看 14 步驾驭路线图")
+  .option("--loop", "检查是否适合开启自动循环")
   .option("--overwrite", "覆盖已有支架文件")
-  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; overwrite?: boolean }) => {
+  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; loop?: boolean; overwrite?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
       if (options.method) {
         print(renderHarnessMethod());
@@ -828,6 +842,12 @@ program
         const context = await loadHarnessContext(cwd);
         const progress = await readHarnessProgress(cwd);
         print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
+        return;
+      }
+      if (options.loop) {
+        const context = await loadHarnessContext(cwd);
+        const progress = await readHarnessProgress(cwd);
+        print(renderHarnessLoopReadiness(analyzeHarnessLoopReadiness(context, progress)));
         return;
       }
       if (options.init) {
@@ -2033,8 +2053,7 @@ async function runNaturalLanguageIntent(inputValue: {
   }
 
   if (isHelpRequest(request)) {
-    print(inputValue.renderer.render({ type: "info", message: "你只需要说清楚想要的结果，ccli 会把开发、验证和交付接住。" }));
-    print(renderBossHome(await buildBossHome(inputValue.cwd)));
+    print(renderPlainHelp(plainHelpCard()));
     return true;
   }
 
@@ -2276,6 +2295,13 @@ async function runNaturalLanguageIntent(inputValue: {
     const context = await loadHarnessContext(inputValue.cwd);
     const progress = await readHarnessProgress(inputValue.cwd);
     print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
+    return true;
+  }
+
+  if (isHarnessLoopRequest(request)) {
+    const context = await loadHarnessContext(inputValue.cwd);
+    const progress = await readHarnessProgress(inputValue.cwd);
+    print(renderHarnessLoopReadiness(analyzeHarnessLoopReadiness(context, progress)));
     return true;
   }
 
@@ -3893,6 +3919,12 @@ function isHarnessPlaybookRequest(request: string): boolean {
 function isHarnessRoadmapRequest(request: string): boolean {
   return /(?:路线图|14\s*步|十四步|路线|roadmap).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
     /(?:驾驭|harness|智能体支架|开发支架).*(?:路线图|14\s*步|十四步|路线|roadmap)/i.test(request);
+}
+
+function isHarnessLoopRequest(request: string): boolean {
+  return /(?:自动循环|无人值守|定时|循环|loop|自动巡检).*(?:驾驭|harness|智能体支架|开发支架|能不能|是否|适合|就绪|检查|评估)/i.test(request) ||
+    /(?:驾驭|harness|智能体支架|开发支架).*(?:自动循环|无人值守|定时|循环|loop|自动巡检)/i.test(request) ||
+    /(?:能不能|是否|适合|检查|评估).*(?:自动循环|无人值守|定时|自动巡检|loop)/i.test(request);
 }
 
 function isHarnessStatusRequest(request: string): boolean {
