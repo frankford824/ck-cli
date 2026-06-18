@@ -77,6 +77,26 @@ export interface BossHome {
   ask: string;
 }
 
+export interface AcceptanceCheck {
+  id: string;
+  title: string;
+  why: string;
+  passHint: string;
+  failSay: string;
+}
+
+export interface AcceptanceGuide {
+  title: string;
+  summary: string;
+  productName?: string;
+  goal?: string;
+  checks: AcceptanceCheck[];
+  passSay: string;
+  changeSay: string;
+  shipSay: string;
+  ask: string;
+}
+
 export type HealthStatus = "ready" | "action-needed" | "optional";
 
 export interface HealthCheckItem {
@@ -297,6 +317,85 @@ export function renderBossHome(home: BossHome): string {
   return lines.join("\n").trim();
 }
 
+export function createAcceptanceGuide(input: {
+  productName?: string;
+  goal?: string;
+  firstCheck?: string;
+  canPreview?: boolean;
+}): AcceptanceGuide {
+  const productName = cleanText(input.productName);
+  const goal = cleanText(input.goal);
+  const firstCheck = cleanText(input.firstCheck) ?? firstCheckFromGoal(goal);
+  const subject = productName ? `「${productName}」` : "当前产品";
+  const goalText = goal ? `目标：${goal}` : "先按老板能不能一眼看懂来验收。";
+  const checks: AcceptanceCheck[] = [
+    {
+      id: "first-screen",
+      title: "第一眼是否看懂",
+      why: firstCheck ?? "老板打开页面后，应该不用解释就知道这个产品解决什么问题。",
+      passHint: "首屏能看清业务重点、当前状态和下一步动作。",
+      failSay: "第一眼看不懂，把首页改得更清楚"
+    },
+    {
+      id: "core-result",
+      title: "核心结果是否突出",
+      why: "产品必须先服务业务结果，而不是只有好看的页面。",
+      passHint: "最重要的数据、列表、提醒或流程在页面上足够明显。",
+      failSay: "把最重要的业务结果放到更显眼的位置"
+    },
+    {
+      id: "next-action",
+      title: "下一步是否明确",
+      why: "普通用户不应该猜该点哪里、先做什么。",
+      passHint: "每个主要区域都有清楚的按钮、状态或处理建议。",
+      failSay: "把页面上的下一步动作改得更明确"
+    },
+    {
+      id: "mobile",
+      title: "小屏幕是否可用",
+      why: "老板和员工经常在手机或小窗口里看结果。",
+      passHint: "文字不挤、按钮好点、关键内容没有被遮住。",
+      failSay: "把手机上的页面改得更清楚好用"
+    }
+  ];
+
+  return {
+    title: `${subject}验收清单`,
+    summary: input.canPreview === false ? "当前还不能直接预览，先按目标检查需求是否清楚。" : goalText,
+    productName,
+    goal,
+    checks,
+    passSay: "我满意，准备交付",
+    changeSay: "我想改一下：",
+    shipSay: "把本次改动自动审查并合并",
+    ask: "不满意就直接说想改哪里；满意就说“我满意，准备交付”。"
+  };
+}
+
+export function renderAcceptanceGuide(guide: AcceptanceGuide): string {
+  const lines = [
+    guide.title,
+    "",
+    guide.summary,
+    "",
+    "按这几项看一遍："
+  ];
+
+  for (const [index, check] of guide.checks.entries()) {
+    lines.push(`${index + 1}. ${check.title}`);
+    lines.push(`看什么：${check.why}`);
+    lines.push(`通过标准：${check.passHint}`);
+    lines.push(`不满意直接说：${check.failSay}`);
+  }
+
+  lines.push("");
+  lines.push(`满意直接说：${guide.passSay}`);
+  lines.push(`想继续改直接说：${guide.changeSay}后面加你的要求`);
+  lines.push(`要交付直接说：${guide.shipSay}`);
+  lines.push(guide.ask);
+  return lines.join("\n").trim();
+}
+
 export function healthSummary(items: HealthCheckItem[]): HealthReport {
   const actionCount = items.filter((item) => item.status === "action-needed").length;
   const summary =
@@ -348,8 +447,28 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice", "action-button", "boss-home", "project-catalog", "idea-catalog", "next-action"],
-    events: ["welcome", "home", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    output: ["speech", "screen", "choice", "action-button", "boss-home", "acceptance-guide", "project-catalog", "idea-catalog", "next-action"],
+    events: ["welcome", "home", "acceptance", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
+}
+
+function firstCheckFromGoal(goal?: string): string | undefined {
+  if (!goal) {
+    return undefined;
+  }
+  return starterIdeas().find((idea) => goal.includes(idea.say) || idea.say.includes(goal) || keywordMatch(goal, idea))?.firstCheck;
+}
+
+function keywordMatch(goal: string, idea: StarterIdea): boolean {
+  const text = `${idea.title}${idea.bestFor}${idea.outcome}${idea.say}`;
+  return goal
+    .split(/[，。,\s]+/)
+    .filter((part) => part.length >= 2)
+    .some((part) => text.includes(part));
+}
+
+function cleanText(value?: string): string | undefined {
+  const cleaned = value?.replace(/\s+/g, " ").trim();
+  return cleaned || undefined;
 }

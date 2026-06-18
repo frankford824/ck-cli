@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  createAcceptanceGuide,
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
   hardwareManifest,
   healthSummary,
+  renderAcceptanceGuide,
   renderBossHome,
   renderNextActions,
   renderStarterIdeas,
@@ -105,6 +107,22 @@ describe("experience", () => {
     expect(home.primary.command).toBe("ccli ideas");
   });
 
+  it("renders an acceptance guide for non-technical review", () => {
+    const guide = createAcceptanceGuide({
+      productName: "库存看板",
+      goal: "做一个库存看板，能看低库存、今日出库和生成补货提醒",
+      canPreview: true
+    });
+    const text = renderAcceptanceGuide(guide);
+
+    expect(text).toContain("库存看板");
+    expect(text).toContain("按这几项看一遍");
+    expect(text).toContain("第一眼是否看懂");
+    expect(text).toContain("不满意直接说");
+    expect(text).toContain("我满意，准备交付");
+    expect(text).not.toContain("diff");
+  });
+
   it("keeps a future hardware protocol explicit", () => {
     const event = createExperienceEvent({
       tone: "success",
@@ -121,6 +139,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("speech");
     expect(hardwareManifest().output).toContain("action-button");
     expect(hardwareManifest().output).toContain("boss-home");
+    expect(hardwareManifest().output).toContain("acceptance-guide");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");
