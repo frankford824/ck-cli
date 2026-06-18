@@ -240,6 +240,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@ccli/harness':
+        specifier: workspace:*
+        version: link:../harness
       '@ccli/policy':
         specifier: workspace:*
         version: link:../policy

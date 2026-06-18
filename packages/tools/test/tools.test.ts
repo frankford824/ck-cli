@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTemplateProject, FileTool, GitHubTool, GitTool, ProjectTool, runShell } from "../src/index.js";
+import { loadHarnessContext } from "@ccli/harness";
+import { createTemplateProject, FileTool, GitHubTool, GitTool, ProjectTool, runShell, ShellTool } from "../src/index.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,6 +49,32 @@ describe("tools", () => {
       const result = await runShell("node -e \"setTimeout(() => {}, 5000)\"", cwd, 100);
       expect(result.exitCode).toBe(124);
       expect(result.stderr).toContain("超时");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces harness hooks before running shell commands", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-hook-"));
+    try {
+      await mkdir(join(cwd, ".ccli", "harness"), { recursive: true });
+      await writeFile(
+        join(cwd, ".ccli", "harness", "hooks.json"),
+        JSON.stringify({
+          hooks: [
+            {
+              id: "dangerous-action-gate",
+              when: "before-tool",
+              description: "执行前拦截危险动作",
+              blocks: true
+            }
+          ]
+        }),
+        "utf8"
+      );
+      const harness = await loadHarnessContext(cwd);
+
+      await expect(new ShellTool().run("rm -rf .", { cwd, confirmed: true, harness })).rejects.toThrow("驾驭系统");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

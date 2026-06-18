@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
-import { harnessPrompt, loadHarnessContext, progressSnapshot, recordHarnessLesson, writeHarnessProgress, type HarnessContext } from "@ccli/harness";
+import {
+  evaluateHarnessHooks,
+  HarnessHookBlockedError,
+  harnessPrompt,
+  loadHarnessContext,
+  progressSnapshot,
+  recordHarnessLesson,
+  writeHarnessProgress,
+  type HarnessContext,
+  type HarnessHookEvaluationInput
+} from "@ccli/harness";
 import { LocalMemoryStore, memoryContextForPrompt } from "@ccli/memory";
 import { forcingQuestions, specialistPrompt, sprintPlanLabels } from "@ccli/methodology";
 import { ProductRenderer, type ProductEvent } from "@ccli/product-ui";
@@ -129,24 +139,33 @@ export class BuilderAgent {
       "说明：当前还没有可用的开发模型配置，因此 ccli 已先生成一个可运行的中文首版页面，并保存了需求草稿。配置模型后可以继续自动开发。"
     ].join("\n");
 
-    await this.fileTool.write(requestFile, `${requestContent}\n`, { cwd: input.cwd, audit: input.audit, confirmed: true });
+    await this.fileTool.write(requestFile, `${requestContent}\n`, {
+      cwd: input.cwd,
+      audit: input.audit,
+      confirmed: true,
+      harness: input.harnessContext
+    });
 
     const changedFiles = [requestFile];
-    const hasAppTemplate = await this.fileTool.read("src/App.tsx", { cwd: input.cwd, audit: input.audit }).then(
-      () => true,
-      () => false
-    );
+    const hasAppTemplate = await this.fileTool
+      .read("src/App.tsx", { cwd: input.cwd, audit: input.audit, harness: input.harnessContext })
+      .then(
+        () => true,
+        () => false
+      );
     if (hasAppTemplate) {
       const starter = starterAppFor(input.requirement, input.plan);
       await this.fileTool.write("src/App.tsx", starter.appTsx, {
         cwd: input.cwd,
         audit: input.audit,
-        confirmed: true
+        confirmed: true,
+        harness: input.harnessContext
       });
       await this.fileTool.write("src/styles.css", starter.stylesCss, {
         cwd: input.cwd,
         audit: input.audit,
-        confirmed: true
+        confirmed: true,
+        harness: input.harnessContext
       });
       changedFiles.push("src/App.tsx", "src/styles.css");
       await input.audit.record("builder.fallback.starter", "已生成无模型首版业务页面", {
@@ -174,15 +193,16 @@ export class BuilderAgent {
     harnessContext?: HarnessContext;
     repairFeedback?: string;
   }): Promise<BuildResult | undefined> {
-    const projectFiles = (await this.fileTool.list({ cwd: input.cwd, audit: input.audit })).slice(0, 80);
-    const packageJson = await this.fileTool.read("package.json", { cwd: input.cwd, audit: input.audit }).catch(() => "");
-    const appTsx = await this.fileTool.read("src/App.tsx", { cwd: input.cwd, audit: input.audit }).catch(() => "");
-    const designContract = await this.fileTool.read("DESIGN.md", { cwd: input.cwd, audit: input.audit }).catch(() => "");
+    const toolContext = { cwd: input.cwd, audit: input.audit, harness: input.harnessContext };
+    const projectFiles = (await this.fileTool.list(toolContext)).slice(0, 80);
+    const packageJson = await this.fileTool.read("package.json", toolContext).catch(() => "");
+    const appTsx = await this.fileTool.read("src/App.tsx", toolContext).catch(() => "");
+    const designContract = await this.fileTool.read("DESIGN.md", toolContext).catch(() => "");
     const officeHours = await this.fileTool
-      .read(".ccli/skills/office-hours.md", { cwd: input.cwd, audit: input.audit })
+      .read(".ccli/skills/office-hours.md", toolContext)
       .catch(() => "");
     const frontendDesign = await this.fileTool
-      .read(".ccli/skills/frontend-design.md", { cwd: input.cwd, audit: input.audit })
+      .read(".ccli/skills/frontend-design.md", toolContext)
       .catch(() => "");
 
     const text = await collectText(input.selection.provider, {
@@ -229,7 +249,8 @@ export class BuilderAgent {
       await this.fileTool.write(change.path, change.content, {
         cwd: input.cwd,
         audit: input.audit,
-        confirmed: input.confirmed
+        confirmed: input.confirmed,
+        harness: input.harnessContext
       });
       changedFiles.push(change.path);
     }
@@ -293,11 +314,12 @@ export class TaskOrchestrator {
         facts: harnessContext.standingFacts.map((document) => document.title),
         nextAction: "整理中文产品方案。"
       });
-      await this.git.init({ cwd: options.cwd, audit, confirmed: true });
+      await this.git.init({ cwd: options.cwd, audit, confirmed: true, harness: harnessContext });
       const branch = await this.git.createTaskBranch(slugFor(options.requirement), {
         cwd: options.cwd,
         audit,
-        confirmed: true
+        confirmed: true,
+        harness: harnessContext
       });
 
       await emit({ type: "plan", message: "正在整理实现方案。" });
@@ -348,7 +370,8 @@ export class TaskOrchestrator {
       let validationOutcome = await runWorkflowValidation(this.project, {
         cwd: options.cwd,
         audit,
-        confirmed: true
+        confirmed: true,
+        harness: harnessContext
       });
       await saveProgress(options.cwd, audit, {
         task: options.requirement,
@@ -387,7 +410,8 @@ export class TaskOrchestrator {
         validationOutcome = await runWorkflowValidation(this.project, {
           cwd: options.cwd,
           audit,
-          confirmed: true
+          confirmed: true,
+          harness: harnessContext
         });
         await saveProgress(options.cwd, audit, {
           task: options.requirement,
@@ -419,7 +443,8 @@ export class TaskOrchestrator {
       const committed = await this.git.commitAll(commitMessage(options.requirement), {
         cwd: options.cwd,
         audit,
-        confirmed: true
+        confirmed: true,
+        harness: harnessContext
       });
       await saveProgress(options.cwd, audit, {
         task: options.requirement,
@@ -438,9 +463,14 @@ export class TaskOrchestrator {
             severity: "warning"
           });
         } else {
-          await this.git.pushCurrent({ cwd: options.cwd, audit, confirmed: true });
+          await recordHarnessHookEvaluation(audit, harnessContext, {
+            when: "after-validation",
+            action: "ship",
+            validation: validationOutcome.validation
+          });
+          await this.git.pushCurrent({ cwd: options.cwd, audit, confirmed: true, harness: harnessContext });
           const pr = await this.github.createDraftPr(
-            { cwd: options.cwd, audit, confirmed: true },
+            { cwd: options.cwd, audit, confirmed: true, harness: harnessContext },
             {
               title: commitMessage(options.requirement),
               body: prBody(options.requirement, build, review),
@@ -1058,7 +1088,7 @@ interface ValidationOutcome {
 
 async function runWorkflowValidation(
   project: ProjectTool,
-  context: { cwd: string; audit: AuditSession; confirmed: boolean }
+  context: { cwd: string; audit: AuditSession; confirmed: boolean; harness?: HarnessContext }
 ): Promise<ValidationOutcome> {
   let validationError: unknown;
   const results = await project.runValidation(context).catch(async (error: unknown) => {
@@ -1145,6 +1175,26 @@ async function saveProgress(
   await writeHarnessProgress(cwd, progress).catch(async (error: unknown) => {
     await audit.record("harness.progress.error", "Harness 进度写入失败", serializeError(error));
   });
+}
+
+async function recordHarnessHookEvaluation(
+  audit: AuditSession,
+  context: HarnessContext,
+  input: HarnessHookEvaluationInput
+): Promise<void> {
+  const evaluation = evaluateHarnessHooks(context, input);
+  if (!evaluation.findings.length) {
+    return;
+  }
+
+  await audit.record(
+    `harness.hook.${input.when}`,
+    evaluation.blocked ? "驾驭系统已阻止团队交付" : "驾驭系统已完成阶段检查",
+    evaluation
+  );
+  if (evaluation.blocked) {
+    throw new HarnessHookBlockedError(evaluation);
+  }
 }
 
 async function rememberHarnessLesson(

@@ -502,7 +502,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - 启动任务时读取 `AGENTS.md`、`CLAUDE.md`、`CCLI.md`、`.ccli/harness/` 和 `.ccli/skills/`。
 - 每个阶段只暴露少量工具语义，减少模型选择噪音。
 - `ccli harness --init` 会为已有项目补齐项目指南、权限档案、确定性钩子、审查代理、产品规则、安全规则、任务清单、开工检查、长期状态和失败经验库。
-- `.ccli/harness/settings.json` 固定自动、确认和禁止动作；`.ccli/harness/hooks.json` 描述危险动作拦截、质量反馈和记忆写入规则。
+- `.ccli/harness/settings.json` 固定自动、确认和禁止动作；`.ccli/harness/hooks.json` 会在后台动作前后执行检查，拦截危险动作并记录质量反馈。
 - `.ccli/harness/agents/` 保存独立审查代理和验证执行代理说明，让开发和评估分开。
 - 自动验证失败时，把失败摘要交回开发代理，最多先自动修复一次。
 - 每个阶段写入 `.ccli/progress.json`，长任务或上下文丢失后可以接管。

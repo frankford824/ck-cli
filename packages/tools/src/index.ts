@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { evaluateHarnessHooks, HarnessHookBlockedError, type HarnessContext, type HarnessHookEvaluationInput } from "@ccli/harness";
 import { assessOperation, PolicyBlockedError, type OperationKind } from "@ccli/policy";
 import type { AuditSession } from "@ccli/session";
 import { createWebAppTemplate } from "@ccli/templates";
@@ -10,6 +11,7 @@ export interface ToolContext {
   cwd: string;
   audit?: AuditSession;
   confirmed?: boolean;
+  harness?: HarnessContext;
 }
 
 export interface CommandResult {
@@ -78,11 +80,36 @@ export interface GitRevertResult {
   message: string;
 }
 
+async function checkHarnessHooks(context: ToolContext, input: HarnessHookEvaluationInput): Promise<void> {
+  if (!context.harness) {
+    return;
+  }
+
+  const evaluation = evaluateHarnessHooks(context.harness, input);
+  if (!evaluation.findings.length) {
+    return;
+  }
+
+  await context.audit?.record(
+    `harness.hook.${input.when}`,
+    evaluation.blocked ? "驾驭系统已阻止后台动作" : "驾驭系统已完成后台检查",
+    evaluation
+  );
+  if (evaluation.blocked) {
+    throw new HarnessHookBlockedError(evaluation);
+  }
+}
+
 export class ShellTool {
   async run(
     command: string,
     context: ToolContext & { kind?: OperationKind; timeoutMs?: number; onOutput?: (chunk: string) => void }
   ): Promise<CommandResult> {
+    await checkHarnessHooks(context, {
+      when: "before-tool",
+      action: context.kind ?? "shell",
+      command
+    });
     const decision = assessOperation({ kind: context.kind ?? "shell", command });
     if (!decision.allowed || (decision.confirmationRequired && !context.confirmed)) {
       throw new PolicyBlockedError(decision);
@@ -105,6 +132,11 @@ export class FileTool {
 
   async write(relativePath: string, content: string, context: ToolContext): Promise<void> {
     const absolutePath = safeResolve(context.cwd, relativePath);
+    await checkHarnessHooks(context, {
+      when: "before-tool",
+      action: "file-write",
+      target: relativePath
+    });
     const decision = assessOperation({ kind: "write", target: relativePath });
     if (!decision.allowed || (decision.confirmationRequired && !context.confirmed)) {
       throw new PolicyBlockedError(decision);
@@ -113,6 +145,12 @@ export class FileTool {
     await mkdir(dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, content, "utf8");
     await context.audit?.record("tool.file.write", "更新项目内容", { relativePath, bytes: Buffer.byteLength(content) });
+    await checkHarnessHooks(context, {
+      when: "after-edit",
+      action: "file-write",
+      target: relativePath,
+      changedFiles: [relativePath]
+    });
   }
 
   async list(context: ToolContext, relativePath = "."): Promise<string[]> {
@@ -618,10 +656,12 @@ export class ProjectTool {
     const scripts = await this.packageScripts(context.cwd);
     if (!manager) {
       await context.audit?.record("tool.validate.skip", "没有发现可自动验证的项目配置");
+      await checkHarnessHooks(context, { when: "after-validation", action: "validate", validation: "skipped" });
       return [];
     }
     if (!existsSync(join(context.cwd, "node_modules"))) {
       await context.audit?.record("tool.validate.skip", "项目依赖尚未安装，已跳过自动验证");
+      await checkHarnessHooks(context, { when: "after-validation", action: "validate", validation: "skipped" });
       return [];
     }
 
@@ -634,6 +674,11 @@ export class ProjectTool {
     for (const command of commands) {
       results.push(await shell.run(command, { ...context, kind: "validate", confirmed: true, timeoutMs: 180_000 }));
     }
+    await checkHarnessHooks(context, {
+      when: "after-validation",
+      action: "validate",
+      validation: results.every((result) => result.exitCode === 0) ? "passed" : "failed"
+    });
     return results;
   }
 }

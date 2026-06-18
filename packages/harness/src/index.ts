@@ -56,6 +56,43 @@ export interface HarnessHookPlan {
   hooks: HarnessHook[];
 }
 
+export type HarnessHookSeverity = "info" | "warning" | "blocked";
+
+export interface HarnessHookEvaluationInput {
+  when: HarnessHook["when"];
+  action: string;
+  command?: string;
+  target?: string;
+  validation?: "passed" | "failed" | "skipped";
+  changedFiles?: string[];
+}
+
+export interface HarnessHookFinding {
+  id: string;
+  description: string;
+  severity: HarnessHookSeverity;
+  reason: string;
+  blocks: boolean;
+}
+
+export interface HarnessHookEvaluation {
+  when: HarnessHook["when"];
+  action: string;
+  blocked: boolean;
+  userMessage: string;
+  findings: HarnessHookFinding[];
+}
+
+export class HarnessHookBlockedError extends Error {
+  readonly evaluation: HarnessHookEvaluation;
+
+  constructor(evaluation: HarnessHookEvaluation) {
+    super(evaluation.userMessage);
+    this.name = "HarnessHookBlockedError";
+    this.evaluation = evaluation;
+  }
+}
+
 export interface HarnessProgress {
   task: string;
   currentStage: HarnessStage;
@@ -113,6 +150,13 @@ const LESSONS_FILE = ".ccli/harness/agent-memory/LESSONS.md";
 const MEMORY_FILES = [MEMORY_FILE, LESSONS_FILE];
 const PROGRESS_FILE = ".ccli/progress.json";
 const MAX_DOCUMENT_CHARS = 5000;
+const SECRET_TARGET = /(^|\/|\\)(\.env|\.env\..*|id_rsa|id_dsa|id_ed25519|.*\.pem|.*\.key|.*secret.*|.*credential.*)$/i;
+const SECRET_COMMAND = /\b(cat|type|less|more|sed|awk)\b[\s\S]*(\.env|id_rsa|id_dsa|id_ed25519|\.pem|\.key|secret|credential)/i;
+const REMOTE_SCRIPT = /(curl|wget)\s+[^|&;]+(\|\s*(bash|sh|zsh)|>\s*[^&;]+\s*&&\s*(bash|sh|zsh))/i;
+const DESTRUCTIVE_COMMAND = /\b(rm\s+-rf|del\s+\/[sq]|rmdir\s+\/[sq]|chmod\s+-R\s+777|sudo\s+rm|git\s+reset\s+--hard|git\s+clean\s+-fd)\b/i;
+const DATABASE_COMMAND = /\b(drop\s+database|drop\s+schema|truncate\s+table|prisma\s+migrate\s+deploy|sequelize\s+db:migrate|rails\s+db:migrate)\b/i;
+const PUBLISH_OR_DEPLOY_COMMAND = /\b(npm\s+publish|pnpm\s+publish|yarn\s+npm\s+publish|docker\s+push|wrangler\s+deploy|vercel\s+--prod|netlify\s+deploy\s+--prod|firebase\s+deploy|kubectl\s+apply|helm\s+upgrade|terraform\s+apply|pulumi\s+up)\b/i;
+const FORCE_PUSH = /\bgit\s+push\b[\s\S]*(?:--force|-f)(?:[\s;&|]|$)/i;
 
 export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
   const [standingFacts, rules, skills, artifacts, agents, memories, settings, hookPlan] = await Promise.all([
@@ -442,6 +486,25 @@ export function defaultToolBudget(): HarnessToolBudget[] {
   ];
 }
 
+export function evaluateHarnessHooks(context: HarnessContext, input: HarnessHookEvaluationInput): HarnessHookEvaluation {
+  const hooks = context.hookPlan?.hooks.filter((hook) => hook.when === input.when) ?? [];
+  const findings = hooks.flatMap((hook) => evaluateHarnessHook(hook, input));
+  const blocked = findings.some((finding) => finding.severity === "blocked" && finding.blocks);
+  const blockingReasons = findings.filter((finding) => finding.severity === "blocked").map((finding) => finding.reason);
+
+  return {
+    when: input.when,
+    action: input.action,
+    blocked,
+    findings,
+    userMessage: blocked
+      ? `这个后台动作已被驾驭系统阻止：${blockingReasons.join("、") || "风险过高"}。`
+      : findings.length
+        ? "驾驭系统已完成后台检查。"
+        : "没有需要执行的驾驭钩子。"
+  };
+}
+
 export function renderHarnessSummary(context: HarnessContext): string {
   const facts = context.standingFacts.length;
   const rules = context.rules.length;
@@ -452,6 +515,121 @@ export function renderHarnessSummary(context: HarnessContext): string {
   const hooks = context.hookPlan?.hooks.length ? `已加载 ${context.hookPlan.hooks.length} 个确定性钩子` : "暂无确定性钩子";
   const memory = context.memories.length ? `已接入 ${context.memories.length} 份项目记忆` : context.memory ? "已接入历史记忆" : "暂无历史记忆";
   return `驾驭系统已加载：${facts} 份长期事实、${rules} 份确定性规则、${skills} 个复用技能、${artifacts} 份执行清单、${agents} 个子代理说明，${settings}，${hooks}，${memory}。`;
+}
+
+function evaluateHarnessHook(hook: HarnessHook, input: HarnessHookEvaluationInput): HarnessHookFinding[] {
+  if (hook.id === "dangerous-action-gate" || (hook.when === "before-tool" && hook.blocks)) {
+    const reason = detectDangerousAction(input);
+    return reason
+      ? [
+          {
+            id: hook.id,
+            description: hook.description,
+            severity: hook.blocks ? "blocked" : "warning",
+            reason,
+            blocks: Boolean(hook.blocks)
+          }
+        ]
+      : [];
+  }
+
+  if (hook.id === "quality-feedback" && input.when === "after-edit" && (input.target || input.changedFiles?.length)) {
+    return [
+      {
+        id: hook.id,
+        description: hook.description,
+        severity: "info",
+        reason: "项目内容已更新，后续需要进入验证反馈闭环。",
+        blocks: false
+      }
+    ];
+  }
+
+  if (hook.id === "review-before-ship" && input.when === "after-validation") {
+    if (input.action === "ship" && input.validation !== "passed") {
+      return [
+        {
+          id: hook.id,
+          description: hook.description,
+          severity: hook.blocks ? "blocked" : "warning",
+          reason: "自动验证还没有通过，不能准备团队交付。",
+          blocks: Boolean(hook.blocks)
+        }
+      ];
+    }
+
+    return [
+      {
+        id: hook.id,
+        description: hook.description,
+        severity: input.validation === "failed" ? "warning" : "info",
+        reason:
+          input.validation === "failed"
+            ? "自动验证没有通过，必须先说明影响并经过独立审查。"
+            : "验证结束后需要经过独立审查再交付。",
+        blocks: false
+      }
+    ];
+  }
+
+  if (hook.id === "session-memory-writer" && input.when === "session-end") {
+    return [
+      {
+        id: hook.id,
+        description: hook.description,
+        severity: "info",
+        reason: "会话结束前需要写入进度、事实和下一步。",
+        blocks: false
+      }
+    ];
+  }
+
+  return [];
+}
+
+function detectDangerousAction(input: HarnessHookEvaluationInput): string | undefined {
+  const command = input.command ?? "";
+  const target = input.target ?? "";
+  const combined = `${command}\n${target}`;
+
+  if (SECRET_TARGET.test(target) || SECRET_COMMAND.test(command)) {
+    return "涉及密钥或敏感配置";
+  }
+  if (DESTRUCTIVE_COMMAND.test(command)) {
+    return "包含破坏性清理或历史覆盖动作";
+  }
+  if (REMOTE_SCRIPT.test(command)) {
+    return "会执行来自网络的脚本";
+  }
+  if (DATABASE_COMMAND.test(command)) {
+    return "可能改变数据库结构或生产数据";
+  }
+  if (PUBLISH_OR_DEPLOY_COMMAND.test(command)) {
+    return "可能发布或部署到外部环境";
+  }
+  if (isMainBranchPush(command)) {
+    return "可能直接改动主线或强制覆盖远程历史";
+  }
+  if (
+    /\bproduction\b|\bprod\b|生产/.test(combined) &&
+    /(delete|remove|drop|truncate|deploy|publish|release|清空|删除|发布|部署)/i.test(combined)
+  ) {
+    return "可能影响生产环境";
+  }
+
+  return undefined;
+}
+
+function isMainBranchPush(command: string): boolean {
+  if (!/\bgit\s+push\b/i.test(command)) {
+    return false;
+  }
+  if (FORCE_PUSH.test(command)) {
+    return true;
+  }
+
+  const normalized = command.replace(/['"]/g, " ");
+  return /\bgit\s+push\b[\s\S]*(?:^|\s)(?:origin\s+)?(?:main|master)(?:[\s;&|]|$)/i.test(normalized);
 }
 
 async function readDocuments(cwd: string, relativePaths: string[]): Promise<HarnessDocument[]> {
