@@ -317,7 +317,12 @@ export class GitHubTool {
   }
 
   async createOrFindDraftPr(context: ToolContext, options: DraftPrOptions): Promise<DraftPrResult> {
-    const existing = await this.findOpenPrForCurrentBranch(context);
+    const existing = await this.findOpenPrForCurrentBranch(context).catch(async (error: unknown) => {
+      await context.audit?.record("tool.github.pr.find.error", "查找现有团队审查入口失败，将继续尝试创建", {
+        error: serializeUnknownError(error)
+      });
+      return undefined;
+    });
     if (existing) {
       await context.audit?.record("tool.github.pr.existing", "已找到现有团队审查入口", existing);
       return {
@@ -675,6 +680,13 @@ function assertCommandOk(result: CommandResult, fallbackMessage: string): void {
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || result.stdout || fallbackMessage);
   }
+}
+
+function serializeUnknownError(error: unknown): unknown {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message, stack: error.stack };
+  }
+  return error;
 }
 
 function quote(value: string): string {
