@@ -80,6 +80,14 @@ export interface GitRevertResult {
   message: string;
 }
 
+export interface PackageMetadata {
+  scripts: Record<string, string>;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+  optionalDependencies: Record<string, string>;
+  peerDependencies: Record<string, string>;
+}
+
 async function checkHarnessHooks(context: ToolContext, input: HarnessHookEvaluationInput): Promise<void> {
   if (!context.harness) {
     return;
@@ -643,12 +651,27 @@ export class ProjectTool {
   }
 
   async packageScripts(cwd: string): Promise<Record<string, string>> {
+    return (await this.packageMetadata(cwd)).scripts;
+  }
+
+  async packageMetadata(cwd: string): Promise<PackageMetadata> {
     try {
-      const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf8")) as { scripts?: Record<string, string> };
-      return pkg.scripts ?? {};
+      const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf8")) as Partial<PackageMetadata>;
+      return {
+        scripts: plainStringRecord(pkg.scripts),
+        dependencies: plainStringRecord(pkg.dependencies),
+        devDependencies: plainStringRecord(pkg.devDependencies),
+        optionalDependencies: plainStringRecord(pkg.optionalDependencies),
+        peerDependencies: plainStringRecord(pkg.peerDependencies)
+      };
     } catch {
-      return {};
+      return emptyPackageMetadata();
     }
+  }
+
+  async isWebPreviewProject(cwd: string): Promise<boolean> {
+    const metadata = await this.packageMetadata(cwd);
+    return Boolean(metadata.scripts.dev && isRecognizedWebProject(metadata));
   }
 
   async runValidation(context: ToolContext): Promise<CommandResult[]> {
@@ -681,6 +704,81 @@ export class ProjectTool {
     });
     return results;
   }
+}
+
+function emptyPackageMetadata(): PackageMetadata {
+  return {
+    scripts: {},
+    dependencies: {},
+    devDependencies: {},
+    optionalDependencies: {},
+    peerDependencies: {}
+  };
+}
+
+function plainStringRecord(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
+}
+
+function isRecognizedWebProject(metadata: PackageMetadata): boolean {
+  const packages = new Set(
+    [
+      ...Object.keys(metadata.dependencies),
+      ...Object.keys(metadata.devDependencies),
+      ...Object.keys(metadata.optionalDependencies),
+      ...Object.keys(metadata.peerDependencies)
+    ].map((name) => name.toLowerCase())
+  );
+  const webPackages = [
+    "vite",
+    "next",
+    "astro",
+    "nuxt",
+    "nuxi",
+    "@sveltejs/kit",
+    "@remix-run/dev",
+    "react-scripts",
+    "@vitejs/plugin-react",
+    "@vitejs/plugin-vue",
+    "webpack-dev-server",
+    "vitepress",
+    "rspack",
+    "@rspack/cli",
+    "@rsbuild/core"
+  ];
+  if (webPackages.some((name) => packages.has(name))) {
+    return true;
+  }
+
+  const devScript = normalizeScript(metadata.scripts.dev);
+  return [
+    /^vite(?:\s|$)/,
+    /^next\s+dev(?:\s|$)/,
+    /^astro\s+dev(?:\s|$)/,
+    /^(?:nuxt|nuxi)\s+dev(?:\s|$)/,
+    /^svelte-kit\s+dev(?:\s|$)/,
+    /^remix\s+(?:dev|vite:dev)(?:\s|$)/,
+    /^react-scripts\s+start(?:\s|$)/,
+    /^webpack\s+serve(?:\s|$)/,
+    /^rspack\s+serve(?:\s|$)/,
+    /^rsbuild\s+dev(?:\s|$)/,
+    /^vitepress\s+dev(?:\s|$)/
+  ].some((pattern) => pattern.test(devScript));
+}
+
+function normalizeScript(script = ""): string {
+  return script
+    .replace(/\bcross-env\b/g, "")
+    .replace(/\bNODE_ENV=\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 export async function createTemplateProject(root: string, name: string, audit?: AuditSession): Promise<string[]> {

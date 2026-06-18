@@ -43,6 +43,38 @@ describe("tools", () => {
     }
   });
 
+  it("only treats real web apps as previewable products", async () => {
+    const web = await mkdtemp(join(tmpdir(), "ccli-web-preview-"));
+    const cli = await mkdtemp(join(tmpdir(), "ccli-cli-preview-"));
+    try {
+      await createTemplateProject(web, "demo");
+      await writeFile(
+        join(cli, "package.json"),
+        JSON.stringify(
+          {
+            type: "module",
+            scripts: {
+              dev: "node src/index.js"
+            },
+            dependencies: {
+              commander: "^14.0.0"
+            }
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+
+      const project = new ProjectTool();
+      await expect(project.isWebPreviewProject(web)).resolves.toBe(true);
+      await expect(project.isWebPreviewProject(cli)).resolves.toBe(false);
+    } finally {
+      await rm(web, { recursive: true, force: true });
+      await rm(cli, { recursive: true, force: true });
+    }
+  });
+
   it("stops timed out shell commands", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-"));
     try {

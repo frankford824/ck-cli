@@ -4045,6 +4045,7 @@ async function previewReadiness(cwd: string): Promise<PreviewReadiness> {
   const project = new ProjectTool();
   const scripts = await project.packageScripts(cwd);
   const manager = await project.detectPackageManager(cwd);
+  const isWebPreview = await project.isWebPreviewProject(cwd);
   if (!existsSync(resolve(cwd, "package.json")) || !manager) {
     return {
       canPreview: false,
@@ -4058,6 +4059,14 @@ async function previewReadiness(cwd: string): Promise<PreviewReadiness> {
       hasDependencies: existsSync(resolve(cwd, "node_modules")),
       manager,
       message: "当前项目没有本地预览入口。可以继续让 ccli 为这个项目补上 Web 预览能力。"
+    };
+  }
+  if (!isWebPreview) {
+    return {
+      canPreview: false,
+      hasDependencies: existsSync(resolve(cwd, "node_modules")),
+      manager,
+      message: "当前目录不像可以直接打开页面的 Web 产品。可以进入具体 Web 产品目录，或先创建一个新产品。"
     };
   }
   return {
