@@ -38,6 +38,7 @@ import {
   renderWelcome,
   speechText,
   starterIdeas,
+  toPublicHardwareResponse,
   type BossApprovalReceipt,
   type BossBrief,
   type BossClarificationAnswers,
@@ -1196,7 +1197,7 @@ function nextPlanActions(plan: NextActionPlan): ExperienceAction[] {
 async function buildHardwareHomeResponse(cwd: string): Promise<HardwareResponse> {
   const home = await buildBossHome(cwd);
   const actions = nextPlanActions({ summary: home.summary, actions: home.actions });
-  return createHardwareResponse(
+  return toPublicHardwareResponse(createHardwareResponse(
     createExperienceEvent({
       surface: "hardware",
       tone: "asking",
@@ -1206,7 +1207,7 @@ async function buildHardwareHomeResponse(cwd: string): Promise<HardwareResponse>
       actions
     }),
     { kind: "boss-home", home }
-  );
+  ));
 }
 
 function questionCardActions(card: BossQuestionCard): ExperienceAction[] {
@@ -1262,6 +1263,21 @@ function controlHelpScreen(): string {
     "怎么验收当前产品",
     "我想改一下：首页重点不够明显",
     "我满意，准备交付"
+  ].join("\n");
+}
+
+function hardwareWelcomeScreen(): string {
+  return [
+    "ccli 中文开发管家",
+    "",
+    "你只需要说想做什么产品，或者说下一步怎么办。",
+    "",
+    "可以直接说：",
+    "下一步怎么办",
+    "给我几个产品模板",
+    "一步步问我，然后开工",
+    "试用一下",
+    "打开我上次做的系统"
   ].join("\n");
 }
 
@@ -1346,7 +1362,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
   const utterance = inputValue.utterance.trim();
   const finalize = async <T>(response: HardwareResponse<T>) => {
     await rememberHardwarePendingAction(inputValue.cwd, utterance, response.event.actions);
-    return response;
+    return toPublicHardwareResponse(response);
   };
 
   if (isHardwareConfirmRequest(utterance)) {
@@ -1354,7 +1370,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     await clearHardwarePendingAction(inputValue.cwd);
     if (!pending) {
       const actions = controlRecoveryActions();
-      return createHardwareResponse(
+      return toPublicHardwareResponse(createHardwareResponse(
         createExperienceEvent({
           surface: "hardware",
           tone: "warning",
@@ -1364,10 +1380,10 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
           actions
         }),
         { kind: "confirmation-empty" }
-      );
+      ));
     }
     const action = confirmedHardwareAction(pending.action);
-    return createHardwareResponse(
+    return toPublicHardwareResponse(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "success",
@@ -1377,13 +1393,13 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions: [action]
       }),
       { kind: "action-confirmed", action, sourceUtterance: pending.sourceUtterance, createdAt: pending.createdAt }
-    );
+    ));
   }
 
   await clearHardwarePendingAction(inputValue.cwd);
 
   if (!utterance) {
-    const welcome = renderWelcome();
+    const welcome = hardwareWelcomeScreen();
     const actions = [
       utteranceAction("next", "下一步怎么办", "下一步怎么办"),
       utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),

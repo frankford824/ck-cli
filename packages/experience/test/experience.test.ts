@@ -27,7 +27,8 @@ import {
   renderStarterIdeas,
   renderWelcome,
   speechText,
-  starterIdeas
+  starterIdeas,
+  toPublicHardwareResponse
 } from "../src/index.js";
 
 describe("experience", () => {
@@ -355,6 +356,49 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("next-action");
   });
 
+  it("removes command details from public hardware responses", () => {
+    const raw = createHardwareResponse(
+      createExperienceEvent({
+        tone: "asking",
+        say: "可以开始安全试用。",
+        surface: "hardware",
+        actions: [
+          {
+            id: "start-demo",
+            label: "开始安全试用",
+            kind: "command",
+            command: "ccli try",
+            description: "会创建演示产品。",
+            requiresConfirmation: true
+          }
+        ],
+        audit: { path: "/tmp/hidden" }
+      }),
+      {
+        kind: "try-demo",
+        command: "ccli try",
+        path: "/tmp/hidden",
+        nested: {
+          cwd: "/tmp/project",
+          message: "保留中文业务信息"
+        }
+      }
+    );
+
+    const response = toPublicHardwareResponse(raw);
+    const action = response.event.actions?.[0];
+    const serialized = JSON.stringify(response);
+
+    expect(action?.kind).toBe("utterance");
+    expect(action?.say).toBe("开始安全试用");
+    expect(action).not.toHaveProperty("command");
+    expect(response.event.audit).toBeUndefined();
+    expect(serialized).toContain("保留中文业务信息");
+    expect(serialized).not.toContain("\"command\"");
+    expect(serialized).not.toContain("ccli try");
+    expect(serialized).not.toContain("/tmp/");
+  });
+
   it("exposes hardware schema and examples for device integration", () => {
     const schema = hardwareSchema();
     const examples = hardwareExamples();
@@ -377,26 +421,32 @@ describe("experience", () => {
     expect(schema.kinds).toContain("try-demo");
     expect(schema.kinds).toContain("undo-confirmation");
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
-    expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
-    const bootHome = examples.find((example) => example.data?.kind === "boss-home");
+    expect(schema.response.event.actions[0].kind).not.toContain("command");
+    expect(schema.response.event.actions[0]).not.toHaveProperty("command");
+    const exampleKind = (data: unknown): string | undefined =>
+      typeof data === "object" && data !== null && "kind" in data ? String((data as { kind: unknown }).kind) : undefined;
+    expect(examples.some((example) => exampleKind(example.data) === "boss-home")).toBe(true);
+    expect(JSON.stringify(examples)).not.toContain("\"command\"");
+    expect(examples.every((example) => example.event.actions?.every((action) => action.kind === "utterance") ?? true)).toBe(true);
+    const bootHome = examples.find((example) => exampleKind(example.data) === "boss-home");
     expect(bootHome?.event.say).toContain("开工向导");
     expect(bootHome?.event.screen).toContain("补齐驾驭支架");
     expect(bootHome?.event.actions?.some((action) => action.label === "先问清楚业务目标")).toBe(true);
     expect(bootHome?.event.actions?.some((action) => action.say === "补齐驾驭系统")).toBe(true);
     expect(bootHome?.event.actions?.some((action) => action.kind === "command")).toBe(false);
-    expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "question-card")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "brief-card")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "approval-receipt")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "report-card")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
-    const confirmed = examples.find((example) => example.data?.kind === "action-confirmed");
+    expect(examples.some((example) => exampleKind(example.data) === "setup-guide")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "resume-guide")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "question-card")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "brief-card")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "approval-receipt")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "report-card")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "action-confirmed")).toBe(true);
+    const confirmed = examples.find((example) => exampleKind(example.data) === "action-confirmed");
     expect(confirmed?.event.screen).toContain("可以继续完成这一步");
     expect(confirmed?.event.screen).not.toContain("控制端");
-    expect(examples.some((example) => example.data?.kind === "try-demo")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "undo-confirmation")).toBe(true);
-    expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "try-demo")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "undo-confirmation")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "control-cancelled")).toBe(true);
     expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });
 });

@@ -1162,6 +1162,19 @@ export function createHardwareResponse<T>(event: ExperienceEvent, data?: T): Har
   };
 }
 
+export function toPublicHardwareResponse<T>(response: HardwareResponse<T>): HardwareResponse<unknown> {
+  return {
+    protocol: response.protocol,
+    version: response.version,
+    event: {
+      ...response.event,
+      audit: undefined,
+      actions: response.event.actions?.map(toPublicHardwareAction)
+    },
+    data: stripTechnicalPayload(response.data)
+  };
+}
+
 export function speechText(event: ExperienceEvent): string {
   return event.say.replace(/\s+/g, " ").trim();
 }
@@ -1219,9 +1232,8 @@ export function hardwareSchema() {
           {
             id: "稳定动作标识",
             label: "按钮显示文字",
-            kind: ["utterance", "command"],
-            say: "再次交给 ccli 的中文说法，kind 为 utterance 时使用",
-            command: "需要终端执行的命令，kind 为 command 时使用",
+            kind: ["utterance"],
+            say: "再次交给 ccli 的中文说法",
             description: "中文影响说明",
             requiresConfirmation: "高影响动作是否必须确认"
           }
@@ -1259,10 +1271,10 @@ export function hardwareSchema() {
     ],
     safety: [
       "普通用户界面只展示中文产品语义",
-      "创建产品、打开终端命令、发送远端、交付和合并必须由硬件侧二次确认",
-      "硬件侧可以在用户说确认后读取 action-confirmed，并只执行返回的已确认 action",
+      "创建产品、打开页面、发送远端、交付和合并必须由硬件侧二次确认",
+      "硬件侧只展示 label、say、description 和确认状态，不展示后台命令",
       "不要把代码、路径、命令、堆栈或原始模型输出朗读给用户",
-      "command 动作只给受信任的控制端使用，普通语音设备优先回传 say"
+      "用户点击按钮时，硬件侧优先把 say 作为下一句中文输入回传"
     ]
   };
 }
@@ -1591,7 +1603,7 @@ export function hardwareExamples() {
       }),
       { kind: "control-cancelled" }
     )
-  ];
+  ].map(toPublicHardwareResponse);
 }
 
 function reportStatus(input: {
@@ -1854,4 +1866,43 @@ function formatDisplayDate(value: string): string {
 function cleanText(value?: string): string | undefined {
   const cleaned = value?.replace(/\s+/g, " ").trim();
   return cleaned || undefined;
+}
+
+function toPublicHardwareAction(action: ExperienceAction): ExperienceAction {
+  return {
+    id: action.id,
+    label: action.label,
+    kind: "utterance",
+    say: cleanText(action.say) ?? action.label,
+    description: action.description,
+    requiresConfirmation: action.requiresConfirmation
+  };
+}
+
+function stripTechnicalPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripTechnicalPayload);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (isHardwareActionPayload(value)) {
+    return toPublicHardwareAction(value);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !isTechnicalPayloadKey(key))
+      .map(([key, nested]) => [key, stripTechnicalPayload(nested)])
+  );
+}
+
+function isTechnicalPayloadKey(key: string): boolean {
+  return /^(command|commands|path|cwd|absolutePath|targetCwd|manager|raw|stdout|stderr|stack|diff)$/i.test(key);
+}
+
+function isHardwareActionPayload(value: object): value is ExperienceAction {
+  return "id" in value && "label" in value && "kind" in value;
 }
