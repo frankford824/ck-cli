@@ -11,6 +11,13 @@ export interface ExperienceEvent {
   audit?: unknown;
 }
 
+export interface HardwareResponse<T = unknown> {
+  protocol: "ccli-experience-protocol";
+  version: 1;
+  event: ExperienceEvent;
+  data?: T;
+}
+
 export interface WelcomeCard {
   title: string;
   summary: string;
@@ -213,6 +220,15 @@ export function createExperienceEvent(input: Omit<ExperienceEvent, "surface"> & 
     screen: input.screen ?? input.say,
     choices: input.choices,
     audit: input.audit
+  };
+}
+
+export function createHardwareResponse<T>(event: ExperienceEvent, data?: T): HardwareResponse<T> {
+  return {
+    protocol: "ccli-experience-protocol",
+    version: 1,
+    event,
+    data
   };
 }
 
