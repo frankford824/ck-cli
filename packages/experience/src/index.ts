@@ -41,6 +41,7 @@ export function welcomeCard(): WelcomeCard {
       "最快体验：ccli go \"做一个客户管理系统\"",
       "查看我的产品：ccli projects",
       "打开最近产品：ccli open",
+      "直接说：ccli \"打开我上次做的系统\"",
       "一句话创建产品：ccli create \"做一个客户管理系统\"",
       "查看本地页面：ccli preview --install",
       "创建空项目：ccli new 我的应用",
