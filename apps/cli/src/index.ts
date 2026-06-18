@@ -641,89 +641,26 @@ program
   .option("--method <method>", "合并方式：squash、merge、rebase", "squash")
   .action(async (options: { title?: string; body?: string; merge?: boolean; method?: string }) => {
     await withCli(async ({ renderer, cwd, yes }) => {
-      const confirmed = yes || (await confirmChinese("这会发送当前成果并准备团队审查入口。是否继续？"));
-      if (!confirmed) {
-        print(renderer.render({ type: "risk", message: "已取消交付动作。", severity: "warning" }));
-        return;
-      }
+      await runDeliveryFlow({ cwd, renderer, yes, ...options });
+    });
+  });
 
-      const config = await loadCcliConfig(cwd);
-      const registry = createDefaultProviderRegistry(config);
-      const audit = await AuditSession.create({ cwd, task: "自动交付" });
-      const git = new GitTool();
-      const github = new GitHubTool();
-
-      print(renderer.progress("save", "正在发送当前成果。"));
-      await git.pushCurrent({ cwd, audit, confirmed: true });
-
-      print(renderer.progress("review", "正在进行独立审查。"));
-      const review = await new ReviewerAgent().review({
+program
+  .command("finish")
+  .alias("deliver")
+  .description("验收满意后准备交付")
+  .option("--method <method>", "合并方式：squash、merge、rebase", "squash")
+  .action(async (options: { method?: string }) => {
+    await withCli(async ({ renderer, cwd, yes }) => {
+      await runDeliveryFlow({
         cwd,
-        audit,
-        reviewer: registry.forRole("reviewer", config)
+        renderer,
+        yes,
+        merge: true,
+        method: options.method,
+        title: "老板验收通过",
+        body: "老板已确认当前效果满意，ccli 自动执行审查、交付和合并。"
       });
-
-      const title = options.title ?? "ccli 自动交付";
-      const body = options.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。";
-      const pr = await github.createOrFindDraftPr(
-        { cwd, audit, confirmed: true },
-        {
-          title,
-          body,
-          draft: !options.merge,
-          confirmed: true
-        }
-      );
-      print(renderer.render({ type: "pr", message: pr.message, severity: pr.url ? "success" : "warning" }));
-      if (pr.url) {
-        print(pr.url);
-      }
-
-      if (pr.number) {
-        const comment = await github.postReviewSummary({ cwd, audit, confirmed: true }, pr.number, reviewComment(title, review));
-        print(renderer.render({ type: comment.posted ? "done" : "risk", message: comment.message, severity: comment.posted ? "success" : "warning" }));
-      }
-
-      if (!options.merge) {
-        print(renderer.render({ type: "done", message: "团队审查入口已准备好，等待人工确认合并。", severity: "success" }));
-        return;
-      }
-
-      if (!review.passed) {
-        print(renderer.render({ type: "risk", message: "独立审查发现风险，已停止自动合并。", severity: "warning" }));
-        return;
-      }
-
-      if (!pr.number) {
-        print(renderer.render({ type: "risk", message: "没有可合并的团队审查入口，已停止自动合并。", severity: "warning" }));
-        return;
-      }
-
-      if (pr.draft) {
-        const ready = await github.markReadyForReview({ cwd, audit, confirmed: true }, pr.number);
-        print(renderer.render({ type: ready.posted ? "done" : "risk", message: ready.message, severity: ready.posted ? "success" : "warning" }));
-        if (!ready.posted) {
-          return;
-        }
-      }
-
-      const mergeConfirmed = yes || (await confirmChinese("独立审查已通过。现在会把成果合入主线。是否继续？"));
-      if (!mergeConfirmed) {
-        print(renderer.render({ type: "risk", message: "已取消自动合并。", severity: "warning" }));
-        return;
-      }
-
-      const merge = await github.mergePr(
-        { cwd, audit, confirmed: true },
-        {
-          number: pr.number,
-          method: parseMergeMethod(options.method),
-          commitTitle: title,
-          commitMessage: body,
-          confirmed: true
-        }
-      );
-      print(renderer.render({ type: merge.merged ? "done" : "risk", message: merge.message, severity: merge.merged ? "success" : "warning" }));
     });
   });
 
@@ -954,11 +891,30 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isSatisfiedDeliveryRequest(utterance)) {
+    const actions = [
+      commandAction("confirm-delivery", "确认交付并合并", "ccli finish --yes", "会发送成果、进行独立审查，并在审查通过后合并。", true),
+      utteranceAction("acceptance", "再看验收清单", "怎么验收当前产品"),
+      utteranceAction("change", "我还想改", "我想改一下：")
+    ];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "我理解你已经满意，准备交付。这个动作会发送成果并合入主线，需要确认。",
+        screen: "准备交付\n确认后会发送成果、独立审查，并在审查通过后合并。",
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "delivery-confirmation" }
+    );
+  }
+
   if (isAcceptanceRequest(utterance)) {
     const guide = await buildAcceptanceGuide(inputValue.cwd);
     const actions = [
       utteranceAction("change", "我想改一下", "我想改一下：", "继续提出修改要求"),
-      commandAction("ship", "我满意，准备交付", "ccli ship --merge --yes", "会发送成果、创建审查入口并在审查通过后合并", true),
+      commandAction("ship", "我满意，准备交付", "ccli finish --yes", "会发送成果、创建审查入口并在审查通过后合并", true),
       utteranceAction("next", "下一步怎么办", "下一步怎么办")
     ];
     return createHardwareResponse(
@@ -1224,6 +1180,18 @@ async function runNaturalLanguageIntent(inputValue: {
   if (isDoctorRequest(request)) {
     const report = healthSummary(await checkHealth(inputValue.cwd));
     print(renderHealthReport(report, inputValue.expert));
+    return true;
+  }
+
+  if (isSatisfiedDeliveryRequest(request)) {
+    await runDeliveryFlow({
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      yes: inputValue.yes,
+      merge: true,
+      title: "老板验收通过",
+      body: "老板已确认当前效果满意，ccli 自动执行审查、交付和合并。"
+    });
     return true;
   }
 
@@ -1543,6 +1511,100 @@ async function rememberUserLesson(inputValue: {
   }
 }
 
+async function runDeliveryFlow(inputValue: {
+  cwd: string;
+  renderer: ProductRenderer;
+  yes: boolean;
+  title?: string;
+  body?: string;
+  merge?: boolean;
+  method?: string;
+}): Promise<void> {
+  const confirmed = inputValue.yes || (await confirmChinese("这会发送当前成果并准备团队审查入口。是否继续？"));
+  if (!confirmed) {
+    print(inputValue.renderer.render({ type: "risk", message: "已取消交付动作。", severity: "warning" }));
+    return;
+  }
+
+  const config = await loadCcliConfig(inputValue.cwd);
+  const registry = createDefaultProviderRegistry(config);
+  const audit = await AuditSession.create({ cwd: inputValue.cwd, task: "自动交付" });
+  const git = new GitTool();
+  const github = new GitHubTool();
+
+  print(inputValue.renderer.progress("save", "正在发送当前成果。"));
+  await git.pushCurrent({ cwd: inputValue.cwd, audit, confirmed: true });
+
+  print(inputValue.renderer.progress("review", "正在进行独立审查。"));
+  const review = await new ReviewerAgent().review({
+    cwd: inputValue.cwd,
+    audit,
+    reviewer: registry.forRole("reviewer", config)
+  });
+
+  const title = inputValue.title ?? "ccli 自动交付";
+  const body = inputValue.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。";
+  const pr = await github.createOrFindDraftPr(
+    { cwd: inputValue.cwd, audit, confirmed: true },
+    {
+      title,
+      body,
+      draft: !inputValue.merge,
+      confirmed: true
+    }
+  );
+  print(inputValue.renderer.render({ type: "pr", message: pr.message, severity: pr.url ? "success" : "warning" }));
+  if (pr.url) {
+    print(pr.url);
+  }
+
+  if (pr.number) {
+    const comment = await github.postReviewSummary({ cwd: inputValue.cwd, audit, confirmed: true }, pr.number, reviewComment(title, review));
+    print(inputValue.renderer.render({ type: comment.posted ? "done" : "risk", message: comment.message, severity: comment.posted ? "success" : "warning" }));
+  }
+
+  if (!inputValue.merge) {
+    print(inputValue.renderer.render({ type: "done", message: "团队审查入口已准备好，等待人工确认合并。", severity: "success" }));
+    return;
+  }
+
+  if (!review.passed) {
+    print(inputValue.renderer.render({ type: "risk", message: "独立审查发现风险，已停止自动合并。", severity: "warning" }));
+    return;
+  }
+
+  if (!pr.number) {
+    print(inputValue.renderer.render({ type: "risk", message: "没有可合并的团队审查入口，已停止自动合并。", severity: "warning" }));
+    return;
+  }
+
+  if (pr.draft) {
+    const ready = await github.markReadyForReview({ cwd: inputValue.cwd, audit, confirmed: true }, pr.number);
+    print(inputValue.renderer.render({ type: ready.posted ? "done" : "risk", message: ready.message, severity: ready.posted ? "success" : "warning" }));
+    if (!ready.posted) {
+      return;
+    }
+  }
+
+  const mergeConfirmed = inputValue.yes || (await confirmChinese("独立审查已通过。现在会把成果合入主线。是否继续？"));
+  if (!mergeConfirmed) {
+    print(inputValue.renderer.render({ type: "risk", message: "已取消自动合并。", severity: "warning" }));
+    return;
+  }
+
+  const merge = await github.mergePr(
+    { cwd: inputValue.cwd, audit, confirmed: true },
+    {
+      number: pr.number,
+      method: parseMergeMethod(inputValue.method),
+      commitTitle: title,
+      commitMessage: body,
+      confirmed: true
+    }
+  );
+  print(inputValue.renderer.render({ type: merge.merged ? "done" : "risk", message: merge.message, severity: merge.merged ? "success" : "warning" }));
+}
+
 async function renderKnownProjects(inputValue: { renderer: ProductRenderer; expert: boolean; json: boolean }): Promise<void> {
   const projects = await readProjectRegistry();
   if (inputValue.json) {
@@ -1686,6 +1748,12 @@ function isAcceptanceRequest(request: string): boolean {
   return /(?:怎么|如何|怎样).*(?:验收|确认效果|看效果|判断好坏|交付前)/.test(request) ||
     /(?:验收|验收清单|确认效果|检查效果|通过标准|交付前).*(?:产品|项目|页面|系统|清单|看什么|怎么做)?/.test(request) ||
     /(?:当前|这个|本地).*(?:产品|项目|页面|系统).*(?:验收|确认效果|检查效果|通过标准)/.test(request);
+}
+
+function isSatisfiedDeliveryRequest(request: string): boolean {
+  return /(?:我|老板)?(?:满意|通过|可以|确认|认可).*(?:交付|发布|合并|上线|提交)/.test(request) ||
+    /(?:验收|检查|效果).*(?:通过|满意|可以).*(?:交付|发布|合并|上线|提交)?/.test(request) ||
+    /(?:准备|开始|执行|自动).*(?:交付|发布|合并|上线)/.test(request);
 }
 
 function isHomeRequest(request: string): boolean {
