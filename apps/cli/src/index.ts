@@ -1506,7 +1506,7 @@ async function summarizeHardwareRun(record: HardwareRunRecord): Promise<BossBack
   }
   return {
     status: "ready",
-    summary: `${label}已经结束。可以继续验收结果，或者让系统给下一步建议。`,
+    summary: `${label}已经结束。可以让系统给下一步建议。`,
     proof
   };
 }

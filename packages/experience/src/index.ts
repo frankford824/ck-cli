@@ -1174,9 +1174,10 @@ export function createBossReportCard(input: {
   const stateSummary = cleanText(input.state?.summary);
   const auditSummary = cleanText(input.auditSummary);
   const approvalSummary = cleanText(input.approvalSummary);
-  const hasAnyRecord = Boolean(background || productName || goal || task || input.progress || input.state);
+  const hasProductContext = Boolean(productName || goal || task || input.progress || input.state || input.canPreview);
+  const hasAnyRecord = Boolean(background || hasProductContext);
   const status = reportStatus({ ...input, background }, hasAnyRecord);
-  const subject = productName ? `「${productName}」` : "当前产品";
+  const subject = productName ? `「${productName}」` : background && !hasProductContext ? "当前任务" : "当前产品";
   const summary = reportSummary(subject, status, background);
   const focus =
     status === "empty"
@@ -1202,7 +1203,7 @@ export function createBossReportCard(input: {
       approvalSummary,
       background
     }),
-    actions: (input.nextActions?.length ? input.nextActions : defaultReportActions(status, Boolean(input.canPreview))).slice(0, 5),
+    actions: (input.nextActions?.length ? input.nextActions : defaultReportActions(status, Boolean(input.canPreview), hasProductContext)).slice(0, 5),
     ask: status === "empty" ? "不知道怎么开始，就直接说：试用一下。" : "不确定下一步，就直接说：下一步怎么办。"
   };
 }
@@ -1763,7 +1764,7 @@ function reportSummary(subject: string, status: BossReportStatus, background?: B
     return `${subject}有一个后台动作可能没有顺利完成，建议先看影响。`;
   }
   if (background?.status === "ready") {
-    return `${subject}刚完成一个后台动作，可以继续验收或决定下一步。`;
+    return `${subject}刚完成一个后台动作，可以让系统给下一步建议。`;
   }
   if (status === "empty") {
     return "还没有找到可汇报的产品。建议先安全试用，或者从一个常见产品模板开始。";
@@ -1815,7 +1816,7 @@ function reportProof(input: {
   return proof.filter((item): item is string => Boolean(item)).slice(0, 5);
 }
 
-function defaultReportActions(status: BossReportStatus, canPreview: boolean): NextAction[] {
+function defaultReportActions(status: BossReportStatus, canPreview: boolean, hasProductContext = true): NextAction[] {
   if (status === "empty") {
     return [
       {
@@ -1847,6 +1848,29 @@ function defaultReportActions(status: BossReportStatus, canPreview: boolean): Ne
       reason: "后台动作还在处理，稍等片刻再问就能接上现场。",
       say: "给我一个进度汇报"
     });
+  }
+  if (!hasProductContext) {
+    actions.push(
+      {
+        id: "next",
+        title: "让系统给下一步",
+        reason: "当前还没有产品，先让 ccli 根据准备状态推荐。",
+        say: "下一步怎么办"
+      },
+      {
+        id: "try-demo",
+        title: "先安全试用一遍",
+        reason: "不用模型授权，也不改当前目录，先看到一套演示产品。",
+        say: "试用一下"
+      },
+      {
+        id: "starter-ideas",
+        title: "看看产品模板",
+        reason: "选一个常见场景最快能看到首版。",
+        say: "给我几个产品模板"
+      }
+    );
+    return actions;
   }
   if (canPreview) {
     actions.push({

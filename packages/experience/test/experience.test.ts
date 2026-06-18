@@ -357,6 +357,43 @@ describe("experience", () => {
     expect(text).not.toContain("```");
   });
 
+  it("keeps background-only report cards focused on task progress", () => {
+    const card = createBossReportCard({
+      background: {
+        status: "in-progress",
+        summary: "接上智能开发能力正在后台处理。稍等片刻后，可以再次询问进度。",
+        proof: ["后台动作：接上智能开发能力", "当前仍在处理。"]
+      }
+    });
+    const text = renderBossReportCard(card);
+
+    expect(card.status).toBe("in-progress");
+    expect(text).toContain("当前任务有一个后台动作正在处理");
+    expect(text).toContain("稍后再查进度");
+    expect(text).toContain("直接说：下一步怎么办");
+    expect(text).toContain("直接说：试用一下");
+    expect(text).not.toContain("按清单验收");
+    expect(text).not.toContain("撤回上次成果");
+  });
+
+  it("does not ask for acceptance when only a setup task has finished", () => {
+    const card = createBossReportCard({
+      background: {
+        status: "ready",
+        summary: "接上智能开发能力已经结束。可以让系统给下一步建议。",
+        proof: ["后台动作：接上智能开发能力", "后台动作已经结束。"]
+      }
+    });
+    const text = renderBossReportCard(card);
+
+    expect(card.status).toBe("ready");
+    expect(text).toContain("当前任务刚完成一个后台动作");
+    expect(text).toContain("直接说：下一步怎么办");
+    expect(text).toContain("直接说：试用一下");
+    expect(text).not.toContain("验收");
+    expect(text).not.toContain("撤回上次成果");
+  });
+
   it("renders an acceptance guide for non-technical review", () => {
     const guide = createAcceptanceGuide({
       productName: "库存看板",
