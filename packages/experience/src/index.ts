@@ -163,6 +163,7 @@ export function welcomeCard(): WelcomeCard {
       "开箱准备：ccli ready",
       "继续上次任务：ccli resume",
       "首次设置：ccli setup",
+      "安全试用：ccli try",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
       "不知道做什么：ccli ideas",
@@ -180,6 +181,7 @@ export function welcomeCard(): WelcomeCard {
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
       "下一步怎么办",
+      "试用一下",
       "给我几个产品模板",
       "做第 3 个模板",
       "一键做一个门店预约系统并打开页面",
@@ -693,6 +695,7 @@ export function hardwareManifest() {
       "acceptance-guide",
       "revision-request",
       "delivery-confirmation",
+      "try-demo",
       "project-catalog",
       "idea-catalog",
       "next-action"
@@ -746,6 +749,7 @@ export function hardwareSchema() {
       "acceptance-guide",
       "revision-request",
       "delivery-confirmation",
+      "try-demo",
       "create-product",
       "health-check",
       "fallback"
@@ -890,6 +894,33 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "action-confirmed" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "可以先安全试用一遍。确认后会创建一个演示产品，不会改当前项目。",
+        screen: "安全试用\n确认后会在本机试用区创建演示产品，并打开页面让你验收。",
+        choices: ["开始安全试用", "先看产品模板", "下一步怎么办"],
+        actions: [
+          {
+            id: "start-demo",
+            label: "开始安全试用",
+            kind: "command",
+            command: "ccli try",
+            description: "会在本机试用区创建演示产品，并尝试打开本地页面。",
+            requiresConfirmation: true
+          },
+          {
+            id: "ideas",
+            label: "先看产品模板",
+            kind: "utterance",
+            say: "给我几个产品模板",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "try-demo" }
     ),
     createHardwareResponse(
       createExperienceEvent({
