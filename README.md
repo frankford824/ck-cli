@@ -127,6 +127,7 @@ ccli harness
 ccli harness --expert
 ccli memory search "登录页面" --expert
 ccli hardware --expert
+ccli hardware "下一步怎么办" --json
 ```
 
 ## 老板上手方式
@@ -386,8 +387,17 @@ ccli harness --expert
 - 产品清单
 - 产品场景库，可用 `ccli ideas --json` 读取
 - 下一步建议，可用 `ccli next --json` 读取
+- 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
 
 协议不暴露代码、命令、路径和堆栈，保证用户体验保持普通中文产品语义。
+
+示例：
+
+```bash
+ccli hardware "下一步怎么办" --json
+ccli hardware "给我几个产品模板" --json
+ccli hardware "查看我的产品" --json
+```
 
 ## 自动交付
 

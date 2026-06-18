@@ -9,12 +9,15 @@ import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import {
+  createExperienceEvent,
+  createHardwareResponse,
   hardwareManifest,
   healthSummary,
   renderHealthReport,
   renderNextActions,
   renderStarterIdeas,
   renderWelcome,
+  speechText,
   starterIdeas,
   type NextAction,
   type NextActionPlan,
@@ -414,14 +417,33 @@ program
 
 program
   .command("hardware")
+  .argument("[utterance...]", "语音转写后的中文请求")
   .description("查看未来智能硬件和语音交互协议")
-  .action(async () => {
-    await withCli(async ({ renderer, expert }) => {
+  .option("--json", "输出给硬件使用的结构化响应")
+  .action(async (utteranceParts: string[] | undefined, options: { json?: boolean }) => {
+    await withCli(async ({ renderer, cwd, expert }) => {
+      const utterance = utteranceParts?.join(" ").trim();
+      if (utterance) {
+        const response = await hardwareResponseForUtterance({ cwd, utterance });
+        if (options.json) {
+          print(JSON.stringify(response, null, 2));
+          return;
+        }
+        print(speechText(response.event));
+        if (response.event.choices?.length) {
+          print("");
+          for (const [index, choice] of response.event.choices.entries()) {
+            print(`${index + 1}. ${choice}`);
+          }
+        }
+        return;
+      }
+
       print(renderer.render({ type: "info", message: "ccli 已预留语音和智能硬件交互协议。" }));
       if (expert) {
         print(JSON.stringify(hardwareManifest(), null, 2));
       } else {
-        print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示、选项和产品清单。");
+        print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示、选项、产品清单、场景库和下一步建议。");
       }
     });
   });
@@ -818,6 +840,99 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
       ])
     )
   };
+}
+
+async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance: string }) {
+  const utterance = inputValue.utterance.trim();
+  if (!utterance) {
+    const welcome = renderWelcome();
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "calm",
+        say: "你可以说下一步怎么办，或者说给我几个产品模板。",
+        screen: welcome,
+        choices: ["下一步怎么办", "给我几个产品模板", "打开我上次做的系统"]
+      }),
+      { kind: "welcome" }
+    );
+  }
+
+  if (isNextActionRequest(utterance)) {
+    const plan = await buildNextActionPlan(inputValue.cwd);
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: plan.summary,
+        screen: renderNextActions(plan),
+        choices: plan.actions.map((action) => action.say)
+      }),
+      { kind: "next-action", plan }
+    );
+  }
+
+  if (isIdeaCatalogRequest(utterance) || ideaKeyFromNaturalRequest(utterance)) {
+    const ideas = starterIdeas();
+    const selectedKey = ideaKeyFromNaturalRequest(utterance);
+    const selected = selectedKey ? resolveStarterIdea(selectedKey, ideas) : undefined;
+    const say = selected
+      ? `已选中${selected.title}。如果确认，可以让我开始生成这个产品。`
+      : "我给你列出几个常见产品场景，你可以直接说做第几个模板。";
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say,
+        screen: selected ? `${selected.title}\n${selected.outcome}\n直接说：${selected.say}` : renderStarterIdeas(ideas),
+        choices: selected ? [selected.say, "换一个模板", "下一步怎么办"] : ideas.map((idea, index) => `做第 ${index + 1} 个模板`)
+      }),
+      { kind: "idea-catalog", ideas, selected }
+    );
+  }
+
+  if (isProjectListRequest(utterance)) {
+    const projects = await readProjectRegistry();
+    const screen = projects.length
+      ? projects.map((project, index) => `${index + 1}. ${project.name}`).join("\n")
+      : "还没有保存过产品。";
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: projects.length ? "calm" : "asking",
+        say: projects.length ? `已找到 ${projects.length} 个产品。` : "还没有产品，可以先从模板开工。",
+        screen,
+        choices: projects.length ? ["打开我上次做的系统", "下一步怎么办"] : ["给我几个产品模板"]
+      }),
+      { kind: "project-catalog", projects: projects.map((project, index) => projectSummary(project, index)) }
+    );
+  }
+
+  if (isProjectOpenRequest(utterance)) {
+    const projects = await readProjectRegistry();
+    const latest = projects[0];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: latest ? "asking" : "warning",
+        say: latest ? `最近的产品是${latest.name}。如果确认，可以在终端打开它。` : "还没有可以打开的产品。",
+        screen: latest ? `${latest.name}\n可以执行：ccli open` : "还没有产品，可以先说给我几个产品模板。",
+        choices: latest ? ["打开我上次做的系统", "查看我的产品", "下一步怎么办"] : ["给我几个产品模板"]
+      }),
+      { kind: "open-project", latest: latest ? projectSummary(latest, 0) : undefined }
+    );
+  }
+
+  return createHardwareResponse(
+    createExperienceEvent({
+      surface: "hardware",
+      tone: "asking",
+      say: "我还不能确定你的意思。你可以说下一步怎么办，或者给我几个产品模板。",
+      screen: "可用说法：\n下一步怎么办\n给我几个产品模板\n查看我的产品\n打开我上次做的系统",
+      choices: ["下一步怎么办", "给我几个产品模板", "查看我的产品"]
+    }),
+    { kind: "fallback", utterance }
+  );
 }
 
 async function runNaturalLanguageIntent(inputValue: {

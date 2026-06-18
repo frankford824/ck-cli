@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createExperienceEvent, hardwareManifest, healthSummary, renderNextActions, renderStarterIdeas, renderWelcome, speechText, starterIdeas } from "../src/index.js";
+import { createExperienceEvent, createHardwareResponse, hardwareManifest, healthSummary, renderNextActions, renderStarterIdeas, renderWelcome, speechText, starterIdeas } from "../src/index.js";
 
 describe("experience", () => {
   it("renders boss-friendly welcome copy", () => {
@@ -64,8 +64,11 @@ describe("experience", () => {
 
   it("keeps a future hardware protocol explicit", () => {
     const event = createExperienceEvent({ tone: "success", say: "已完成", surface: "voice" });
+    const response = createHardwareResponse(event, { ok: true });
 
     expect(speechText(event)).toBe("已完成");
+    expect(response.protocol).toBe("ccli-experience-protocol");
+    expect(response.event.say).toBe("已完成");
     expect(hardwareManifest().output).toContain("speech");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
