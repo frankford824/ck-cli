@@ -190,6 +190,10 @@ describe("cli boss experience", () => {
       expect(stdout).toContain("后台动作正在处理");
       expect(stdout).toContain("确认交付并合并正在后台处理");
       expect(stdout).toContain("稍后再查进度");
+      expect(stdout).toContain("下一步怎么办");
+      expect(stdout).toContain("试用一下");
+      expect(stdout).not.toContain("按清单验收");
+      expect(stdout).not.toContain("撤回上次成果");
       expect(stdout).not.toContain(".ccli");
       expect(stdout).not.toContain("hardware-runs");
       expect(stdout).not.toContain("pid");
