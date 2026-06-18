@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -30,6 +30,7 @@ import {
   speechText,
   starterIdeas,
   type ExperienceAction,
+  type HardwareResponse,
   type HealthReport,
   type NextAction,
   type NextActionPlan,
@@ -69,6 +70,14 @@ const PROVIDER_PRESETS = {
 type SupportedProviderId = keyof typeof PROVIDER_PRESETS;
 
 const SETUP_ROLES = ["planner", "builder", "reviewer", "presenter"] as const;
+const HARDWARE_PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
+
+interface HardwarePendingAction {
+  action: ExperienceAction;
+  sourceUtterance: string;
+  createdAt: string;
+  expiresAt: string;
+}
 
 program
   .name("ccli")
@@ -972,8 +981,99 @@ function uniqueExperienceActions(actions: ExperienceAction[]): ExperienceAction[
   });
 }
 
+async function rememberHardwarePendingAction(cwd: string, sourceUtterance: string, actions?: ExperienceAction[]): Promise<void> {
+  const candidates = actions?.filter((action) => action.requiresConfirmation) ?? [];
+  if (candidates.length !== 1) {
+    return;
+  }
+  const now = Date.now();
+  const pending: HardwarePendingAction = {
+    action: candidates[0],
+    sourceUtterance,
+    createdAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + HARDWARE_PENDING_ACTION_TTL_MS).toISOString()
+  };
+  const path = hardwarePendingActionPath(cwd);
+  await mkdir(resolve(path, ".."), { recursive: true });
+  await writeFile(path, `${JSON.stringify(pending, null, 2)}\n`, "utf8");
+}
+
+async function readHardwarePendingAction(cwd: string): Promise<HardwarePendingAction | undefined> {
+  try {
+    const pending = JSON.parse(await readFile(hardwarePendingActionPath(cwd), "utf8")) as HardwarePendingAction;
+    if (!pending.action || new Date(pending.expiresAt).getTime() <= Date.now()) {
+      await clearHardwarePendingAction(cwd);
+      return undefined;
+    }
+    return pending;
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function clearHardwarePendingAction(cwd: string): Promise<void> {
+  await unlink(hardwarePendingActionPath(cwd)).catch((error: unknown) => {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  });
+}
+
+function hardwarePendingActionPath(cwd: string): string {
+  return resolve(cwd, ".ccli", "hardware-pending-action.json");
+}
+
+function confirmedHardwareAction(action: ExperienceAction): ExperienceAction {
+  return { ...action, requiresConfirmation: false };
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
 async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance: string }) {
   const utterance = inputValue.utterance.trim();
+  const finalize = async <T>(response: HardwareResponse<T>) => {
+    await rememberHardwarePendingAction(inputValue.cwd, utterance, response.event.actions);
+    return response;
+  };
+
+  if (isHardwareConfirmRequest(utterance)) {
+    const pending = await readHardwarePendingAction(inputValue.cwd);
+    await clearHardwarePendingAction(inputValue.cwd);
+    if (!pending) {
+      const actions = controlRecoveryActions();
+      return createHardwareResponse(
+        createExperienceEvent({
+          surface: "hardware",
+          tone: "warning",
+          say: "现在没有等待确认的动作。你可以重新说下一步怎么办。",
+          screen: "没有等待确认的动作。\n可以说：下一步怎么办\n也可以说：打开开箱首页",
+          choices: choicesFromActions(actions),
+          actions
+        }),
+        { kind: "confirmation-empty" }
+      );
+    }
+    const action = confirmedHardwareAction(pending.action);
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "success",
+        say: `已确认：${action.label}。`,
+        screen: `已确认：${action.label}\n控制端可以继续执行这个动作。`,
+        choices: [action.label],
+        actions: [action]
+      }),
+      { kind: "action-confirmed", action, sourceUtterance: pending.sourceUtterance, createdAt: pending.createdAt }
+    );
+  }
+
+  await clearHardwarePendingAction(inputValue.cwd);
+
   if (!utterance) {
     const welcome = renderWelcome();
     const actions = [
@@ -981,7 +1081,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),
       utteranceAction("open-latest", "打开我上次做的系统", "打开我上次做的系统")
     ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "calm",
@@ -991,12 +1091,12 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "welcome" }
-    );
+    ));
   }
 
   if (isCancelRequest(utterance)) {
     const actions = controlRecoveryActions();
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "calm",
@@ -1006,12 +1106,12 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "control-cancelled", utterance }
-    );
+    ));
   }
 
   if (isHelpRequest(utterance)) {
     const actions = controlRecoveryActions();
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1021,13 +1121,13 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "control-help" }
-    );
+    ));
   }
 
   if (isSetupStartRequest(utterance) || isSetupGuideRequest(utterance)) {
     const guide = await buildSetupGuide(inputValue.cwd);
     const actions = setupGuideActions(guide);
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1037,13 +1137,13 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "setup-guide", guide }
-    );
+    ));
   }
 
   if (isResumeRequest(utterance)) {
     const guide = await buildResumeGuide(inputValue.cwd);
     const actions = nextPlanActions({ summary: guide.summary, actions: guide.actions });
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1053,7 +1153,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "resume-guide", guide }
-    );
+    ));
   }
 
   if (isSatisfiedDeliveryRequest(utterance)) {
@@ -1062,7 +1162,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       utteranceAction("acceptance", "再看验收清单", "怎么验收当前产品"),
       utteranceAction("change", "我还想改", "我想改一下：")
     ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1072,7 +1172,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "delivery-confirmation" }
-    );
+    ));
   }
 
   if (isRevisionRequest(utterance)) {
@@ -1093,7 +1193,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
           utteranceAction("example", "给一个修改例子", "我想改一下：首页太乱，重点不够明显"),
           utteranceAction("acceptance", "先看验收清单", "怎么验收当前产品")
         ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: feedback ? "asking" : "warning",
@@ -1103,7 +1203,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "revision-request", feedback }
-    );
+    ));
   }
 
   if (isAcceptanceRequest(utterance)) {
@@ -1113,7 +1213,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       commandAction("ship", "我满意，准备交付", "ccli finish --yes", "会发送成果、创建审查入口并在审查通过后合并", true),
       utteranceAction("next", "下一步怎么办", "下一步怎么办")
     ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1123,13 +1223,13 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "acceptance-guide", guide }
-    );
+    ));
   }
 
   if (isHomeRequest(utterance)) {
     const home = await buildBossHome(inputValue.cwd);
     const actions = nextPlanActions({ summary: home.summary, actions: home.actions });
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1139,13 +1239,13 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "boss-home", home }
-    );
+    ));
   }
 
   if (isNextActionRequest(utterance)) {
     const plan = await buildNextActionPlan(inputValue.cwd);
     const actions = nextPlanActions(plan);
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1155,7 +1255,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "next-action", plan }
-    );
+    ));
   }
 
   if (isIdeaCatalogRequest(utterance) || ideaKeyFromNaturalRequest(utterance)) {
@@ -1174,7 +1274,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       : ideas.map((idea, index) =>
           utteranceAction(`idea-${idea.id}`, `做第 ${index + 1} 个模板`, `做第 ${index + 1} 个模板`, idea.title, true)
         );
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1184,7 +1284,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "idea-catalog", ideas, selected }
-    );
+    ));
   }
 
   if (isProjectListRequest(utterance)) {
@@ -1198,7 +1298,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
           utteranceAction("next", "下一步怎么办", "下一步怎么办")
         ]
       : [utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板")];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: projects.length ? "calm" : "asking",
@@ -1208,7 +1308,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "project-catalog", projects: projects.map((project, index) => projectSummary(project, index)) }
-    );
+    ));
   }
 
   if (isCurrentPreviewRequest(utterance) || isCurrentPreviewCheckRequest(utterance)) {
@@ -1223,7 +1323,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
           utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),
           utteranceAction("next", "下一步怎么办", "下一步怎么办")
         ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: readiness.canPreview ? "asking" : "warning",
@@ -1233,7 +1333,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "preview-current", readiness }
-    );
+    ));
   }
 
   if (isProjectOpenRequest(utterance)) {
@@ -1246,7 +1346,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
           utteranceAction("next", "下一步怎么办", "下一步怎么办")
         ]
       : [utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板")];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: latest ? "asking" : "warning",
@@ -1256,7 +1356,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "open-project", latest: latest ? projectSummary(latest, 0) : undefined }
-    );
+    ));
   }
 
   if (isDoctorRequest(utterance)) {
@@ -1265,7 +1365,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       utteranceAction("home", "回到开箱首页", "打开开箱首页"),
       utteranceAction("next", "下一步怎么办", "下一步怎么办")
     ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: report.items.some((item) => item.status === "action-needed") ? "warning" : "success",
@@ -1275,7 +1375,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "health-check", report }
-    );
+    ));
   }
 
   if (isProductCreationRequest(utterance)) {
@@ -1286,7 +1386,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       utteranceAction("ideas", "换一个模板", "给我几个产品模板"),
       utteranceAction("next", "下一步怎么办", "下一步怎么办")
     ];
-    return createHardwareResponse(
+    return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
@@ -1301,7 +1401,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         name,
         command
       }
-    );
+    ));
   }
 
   const actions = [
@@ -1309,7 +1409,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),
     utteranceAction("projects", "查看我的产品", "查看我的产品")
   ];
-  return createHardwareResponse(
+  return finalize(createHardwareResponse(
     createExperienceEvent({
       surface: "hardware",
       tone: "asking",
@@ -1319,7 +1419,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       actions
     }),
     { kind: "fallback", utterance }
-  );
+  ));
 }
 
 async function runNaturalLanguageIntent(inputValue: {
@@ -2103,6 +2203,11 @@ function isCancelRequest(request: string): boolean {
     /^(?:先)?(?:取消|停止|暂停)(?:这次|当前|刚才)?(?:任务|操作|口令|命令|动作|交付|合并|发布|修改|生成|开发)?$/.test(normalized) ||
     /^(?:别|不要)(?:继续|执行|开始|开发|生成|交付|合并|发布|修改)$/.test(normalized)
   );
+}
+
+function isHardwareConfirmRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return /^(?:确认|确认执行|继续|继续执行|是的|对|对的|好的|好|可以|就这个|开始吧|执行吧|没问题|yes|ok)$/.test(normalized);
 }
 
 function isHelpRequest(request: string): boolean {

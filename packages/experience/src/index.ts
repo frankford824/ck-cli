@@ -686,6 +686,8 @@ export function hardwareManifest() {
       "boss-home",
       "setup-guide",
       "resume-guide",
+      "action-confirmed",
+      "confirmation-empty",
       "control-help",
       "control-cancelled",
       "acceptance-guide",
@@ -695,7 +697,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "resume", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -732,6 +734,8 @@ export function hardwareSchema() {
       "boss-home",
       "setup-guide",
       "resume-guide",
+      "action-confirmed",
+      "confirmation-empty",
       "control-help",
       "control-cancelled",
       "next-action",
@@ -749,6 +753,7 @@ export function hardwareSchema() {
     safety: [
       "普通用户界面只展示中文产品语义",
       "创建产品、打开终端命令、发送远端、交付和合并必须由硬件侧二次确认",
+      "硬件侧可以在用户说确认后读取 action-confirmed，并只执行返回的已确认 action",
       "不要把代码、路径、命令、堆栈或原始模型输出朗读给用户",
       "command 动作只给受信任的控制端使用，普通语音设备优先回传 say"
     ]
@@ -865,6 +870,26 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "delivery-confirmation" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "success",
+        say: "已确认：确认交付并合并。",
+        screen: "已确认：确认交付并合并\n控制端可以继续执行这个动作。",
+        choices: ["确认交付并合并"],
+        actions: [
+          {
+            id: "confirm-delivery",
+            label: "确认交付并合并",
+            kind: "command",
+            command: "ccli finish --yes",
+            description: "会发送成果、进行独立审查，并在审查通过后合并。",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "action-confirmed" }
     ),
     createHardwareResponse(
       createExperienceEvent({

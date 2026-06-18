@@ -602,6 +602,7 @@ dist/
 .ccli/audit/
 .ccli/state.json
 .ccli/progress.json
+.ccli/hardware-pending-action.json
 .ccli/memory.jsonl
 `
   };

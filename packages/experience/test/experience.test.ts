@@ -193,6 +193,8 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("boss-home");
     expect(hardwareManifest().output).toContain("setup-guide");
     expect(hardwareManifest().output).toContain("resume-guide");
+    expect(hardwareManifest().output).toContain("action-confirmed");
+    expect(hardwareManifest().output).toContain("confirmation-empty");
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
     expect(hardwareManifest().output).toContain("acceptance-guide");
@@ -211,6 +213,8 @@ describe("experience", () => {
     expect(schema.kinds).toContain("boss-home");
     expect(schema.kinds).toContain("setup-guide");
     expect(schema.kinds).toContain("resume-guide");
+    expect(schema.kinds).toContain("action-confirmed");
+    expect(schema.kinds).toContain("confirmation-empty");
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
     expect(schema.kinds).toContain("revision-request");
@@ -219,6 +223,7 @@ describe("experience", () => {
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);
     expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });
