@@ -122,7 +122,10 @@ export class GitTool {
     if (await this.isRepo(context.cwd)) {
       return;
     }
-    await this.shell.run("git init -b main", { ...context, kind: "git-init", confirmed: true });
+    assertCommandOk(
+      await this.shell.run("git init -b main", { ...context, kind: "git-init", confirmed: true }),
+      "初始化工作区失败"
+    );
   }
 
   async ensureMainBranch(context: ToolContext): Promise<void> {
@@ -132,7 +135,10 @@ export class GitTool {
     }
     const branch = await this.currentBranch(context.cwd).catch(() => "");
     if (!branch) {
-      await this.shell.run("git branch -M main", { ...context, kind: "git-branch", confirmed: true }).catch(() => undefined);
+      const result = await this.shell.run("git branch -M main", { ...context, kind: "git-branch", confirmed: true }).catch(() => undefined);
+      if (result) {
+        assertCommandOk(result, "准备主分支失败");
+      }
     }
   }
 
@@ -147,7 +153,10 @@ export class GitTool {
       }
       branch = `${base}-${index}`;
     }
-    await this.shell.run(`git switch -c ${quote(branch)}`, { ...context, kind: "git-branch", confirmed: true });
+    assertCommandOk(
+      await this.shell.run(`git switch -c ${quote(branch)}`, { ...context, kind: "git-branch", confirmed: true }),
+      "创建任务分支失败"
+    );
     return branch;
   }
 
@@ -180,14 +189,24 @@ export class GitTool {
     }
 
     await this.ensureLocalIdentity(context.cwd);
-    await this.shell.run("git add .", { ...context, kind: "git-commit", confirmed: true });
-    await this.shell.run(`git commit -m ${quote(message)}`, { ...context, kind: "git-commit", confirmed: true });
+    assertCommandOk(await this.shell.run("git add .", { ...context, kind: "git-commit", confirmed: true }), "暂存成果失败");
+    assertCommandOk(
+      await this.shell.run(`git commit -m ${quote(message)}`, { ...context, kind: "git-commit", confirmed: true }),
+      "保存成果失败"
+    );
     return true;
   }
 
   async pushCurrent(context: ToolContext): Promise<void> {
     const branch = await this.currentBranch(context.cwd);
-    await this.shell.run(`git push -u origin ${quote(branch)}`, { ...context, kind: "git-push" });
+    if (await this.remoteBranchMatchesHead(context.cwd, branch)) {
+      await context.audit?.record("tool.git.push.skip", "远程分支已有最新成果", { branch });
+      return;
+    }
+    assertCommandOk(
+      await this.shell.run(`git push -u origin ${quote(branch)}`, { ...context, kind: "git-push" }),
+      "发送成果失败"
+    );
   }
 
   async defaultBaseBranch(cwd: string): Promise<string> {
@@ -215,6 +234,14 @@ export class GitTool {
   private async branchExists(branch: string, cwd: string): Promise<boolean> {
     const result = await runShell(`git rev-parse --verify ${quote(branch)}`, cwd, 30_000).catch(() => undefined);
     return result?.exitCode === 0;
+  }
+
+  private async remoteBranchMatchesHead(cwd: string, branch: string): Promise<boolean> {
+    const [head, remote] = await Promise.all([
+      runShell("git rev-parse HEAD", cwd, 30_000).catch(() => undefined),
+      runShell(`git rev-parse --verify ${quote(`origin/${branch}`)}`, cwd, 30_000).catch(() => undefined)
+    ]);
+    return Boolean(head?.stdout.trim() && head?.stdout.trim() === remote?.stdout.trim());
   }
 
   private async ensureLocalIdentity(cwd: string): Promise<void> {
@@ -316,6 +343,7 @@ export class GitHubTool {
         .join(" ");
       const result = await runShell(command, context.cwd, 120_000);
       if (result.exitCode !== 0) {
+        await context.audit?.record("tool.github.pr.error", "创建团队审查入口失败", result);
         throw new Error(result.stderr || result.stdout || "创建团队审查入口失败");
       }
       const url = result.stdout.trim().split(/\s+/).find((part) => part.startsWith("http"));
@@ -358,6 +386,7 @@ export class GitHubTool {
         120_000
       );
       if (result.exitCode !== 0) {
+        await context.audit?.record("tool.github.review.error", "发布审查摘要失败", result);
         throw new Error(result.stderr || result.stdout || "发布审查摘要失败");
       }
       await context.audit?.record("tool.github.review.done", "已发布审查摘要", result);
@@ -383,6 +412,7 @@ export class GitHubTool {
         120_000
       );
       if (result.exitCode !== 0) {
+        await context.audit?.record("tool.github.ready.error", "开放团队审查入口失败", result);
         throw new Error(result.stderr || result.stdout || "开放团队审查入口失败");
       }
       await context.audit?.record("tool.github.ready.done", "团队审查入口已开放", result);
@@ -440,6 +470,7 @@ export class GitHubTool {
         120_000
       );
       if (result.exitCode !== 0) {
+        await context.audit?.record("tool.github.merge.error", "合并团队审查入口失败", result);
         throw new Error(result.stderr || result.stdout || "合并团队审查入口失败");
       }
       await context.audit?.record("tool.github.merge.done", "已合并团队审查入口", result);
@@ -597,6 +628,12 @@ function scriptCommand(manager: "pnpm" | "npm" | "yarn" | "bun", script: string)
   if (manager === "npm") return `npm run ${script}`;
   if (manager === "bun") return `bun run ${script}`;
   return `${manager} ${script}`;
+}
+
+function assertCommandOk(result: CommandResult, fallbackMessage: string): void {
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || fallbackMessage);
+  }
 }
 
 function quote(value: string): string {
