@@ -1021,6 +1021,31 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isCurrentPreviewRequest(utterance) || isCurrentPreviewCheckRequest(utterance)) {
+    const readiness = await previewReadiness(inputValue.cwd);
+    const canOpen = readiness.canPreview && readiness.hasDependencies;
+    const actions = readiness.canPreview
+      ? [
+          commandAction("preview-current", "打开当前产品页面", readiness.hasDependencies ? "ccli preview" : "ccli preview --install", readiness.message),
+          utteranceAction("next", "下一步怎么办", "下一步怎么办")
+        ]
+      : [
+          utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),
+          utteranceAction("next", "下一步怎么办", "下一步怎么办")
+        ];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: readiness.canPreview ? "asking" : "warning",
+        say: canOpen ? "当前产品可以打开。如果确认，可以启动本地预览。" : readiness.message,
+        screen: canOpen ? "当前产品可以打开。\n确认后会启动本地预览。" : readiness.message,
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "preview-current", readiness }
+    );
+  }
+
   if (isProjectOpenRequest(utterance)) {
     const projects = await readProjectRegistry();
     const latest = projects[0];
@@ -1041,6 +1066,25 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "open-project", latest: latest ? projectSummary(latest, 0) : undefined }
+    );
+  }
+
+  if (isDoctorRequest(utterance)) {
+    const report = healthSummary(await checkHealth(inputValue.cwd));
+    const actions = [
+      utteranceAction("home", "回到开箱首页", "打开开箱首页"),
+      utteranceAction("next", "下一步怎么办", "下一步怎么办")
+    ];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: report.items.some((item) => item.status === "action-needed") ? "warning" : "success",
+        say: report.summary,
+        screen: renderHealthReport(report),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "health-check", report }
     );
   }
 
@@ -1101,6 +1145,16 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isCurrentPreviewCheckRequest(request)) {
+    await checkCurrentPreview({ cwd: inputValue.cwd, renderer: inputValue.renderer });
+    return true;
+  }
+
+  if (isCurrentPreviewRequest(request)) {
+    await openCurrentPreview({ cwd: inputValue.cwd, renderer: inputValue.renderer, yes: inputValue.yes });
+    return true;
+  }
+
   if (isProjectOpenCheckRequest(request)) {
     await openKnownProject({
       projectKey: projectKeyFromNaturalRequest(request),
@@ -1126,6 +1180,12 @@ async function runNaturalLanguageIntent(inputValue: {
       portText: "5173",
       openBrowser: true
     });
+    return true;
+  }
+
+  if (isDoctorRequest(request)) {
+    const report = healthSummary(await checkHealth(inputValue.cwd));
+    print(renderHealthReport(report, inputValue.expert));
     return true;
   }
 
@@ -1494,6 +1554,36 @@ async function openKnownProject(inputValue: {
   });
 }
 
+async function checkCurrentPreview(inputValue: { cwd: string; renderer: ProductRenderer }): Promise<void> {
+  const readiness = await previewReadiness(inputValue.cwd);
+  if (!readiness.canPreview) {
+    print(inputValue.renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
+    return;
+  }
+  const message = readiness.hasDependencies
+    ? "当前产品已经可以打开。"
+    : "当前产品有本地预览入口，但还需要准备运行内容。直接说“打开当前产品页面”即可继续。";
+  print(inputValue.renderer.render({ type: readiness.hasDependencies ? "done" : "info", message, severity: readiness.hasDependencies ? "success" : "info" }));
+}
+
+async function openCurrentPreview(inputValue: { cwd: string; renderer: ProductRenderer; yes: boolean }): Promise<void> {
+  const readiness = await previewReadiness(inputValue.cwd);
+  if (!readiness.canPreview) {
+    print(inputValue.renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
+    return;
+  }
+  if (!readiness.hasDependencies) {
+    await ensureDependenciesForPreview({ cwd: inputValue.cwd, renderer: inputValue.renderer, yes: inputValue.yes });
+  }
+  await startPreviewServer({
+    cwd: inputValue.cwd,
+    renderer: inputValue.renderer,
+    host: "127.0.0.1",
+    port: 5173,
+    openBrowser: true
+  });
+}
+
 function isProjectListRequest(request: string): boolean {
   return /(?:查看|看看|列出|显示|管理).*(?:我的)?(?:产品|项目|应用|系统|列表)/.test(request) || /我的(?:产品|项目|应用|系统)/.test(request);
 }
@@ -1507,6 +1597,28 @@ function isProjectOpenCheckRequest(request: string): boolean {
     /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request) ||
     /(?:检查|确认|看看).*(?:上次|最近|之前|产品|项目|应用|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request)
   );
+}
+
+function isCurrentPreviewCheckRequest(request: string): boolean {
+  if (/(?:上次|最近|之前)/.test(request)) {
+    return false;
+  }
+  return /(?:检查|确认|看看|测试).*(?:当前|这个|本地).*(?:产品|项目|页面|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request) ||
+    /(?:当前|这个|本地).*(?:产品|项目|页面|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request);
+}
+
+function isCurrentPreviewRequest(request: string): boolean {
+  if (/(?:上次|最近|之前)/.test(request)) {
+    return false;
+  }
+  return /(?:打开|启动|预览|看看).*(?:当前|这个|本地).*(?:产品|项目|页面|系统)/.test(request) ||
+    /(?:打开|启动|预览|看看).*(?:页面|效果)/.test(request) ||
+    /(?:当前|这个|本地).*(?:产品|项目|页面|系统).*(?:打开|启动|预览|看看)/.test(request);
+}
+
+function isDoctorRequest(request: string): boolean {
+  return /(?:检查|诊断|体检|看看).*(?:电脑|环境|配置|准备好|能不能用|能否使用|是否可用)/.test(request) ||
+    /(?:电脑|环境|配置).*(?:检查|诊断|体检|准备好|能不能用|能否使用|是否可用)/.test(request);
 }
 
 function isHomeRequest(request: string): boolean {
