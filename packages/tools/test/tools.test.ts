@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +48,22 @@ describe("tools", () => {
       const result = await runShell("node -e \"setTimeout(() => {}, 5000)\"", cwd, 100);
       expect(result.exitCode).toBe(124);
       expect(result.stderr).toContain("超时");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("initializes a standalone child repository inside a parent repository", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-parent-"));
+    try {
+      const child = join(cwd, "child-product");
+      await runShell("git init -b main", cwd, 30_000);
+      await mkdir(child);
+
+      await new GitTool().initStandalone({ cwd: child, confirmed: true });
+
+      const topLevel = await runShell("git rev-parse --show-toplevel", child, 30_000);
+      expect(topLevel.stdout.trim()).toBe(child);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
