@@ -158,6 +158,7 @@ ccli skills
 ccli harness
 ccli harness --init
 ccli harness --method
+ccli harness --playbook
 ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
 ccli "取消"
@@ -541,6 +542,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - 本地预览作为用户可理解的反馈闭环，让“看见页面”成为验证的一部分。
 - `ccli skills` 会给已有项目补齐可复用中文开发技能；直接说“补齐开发技能”也可以触发。
 - `ccli harness` 会给出中文健康度、已具备能力、缺口和下一步建议。
+- `ccli harness --playbook` 会把 Harness Engineering 变成当天可执行剧本：开工前定边界、阶段工具收敛、验证失败回流、独立复核、结束写现场和经验沉淀。
 - `ccli harness --roadmap` 会按 14 步路线评估当前项目：哪些已具备、哪些先补、哪些后续再做。
 - `ccli learn` 会把一句“以后不要再这样”沉淀成项目经验。
 - 所有原始工具结果和模型细节仍进入 `.ccli/audit/*.jsonl`。
@@ -571,6 +573,12 @@ ccli harness
 ccli harness --method
 ```
 
+查看今天怎么按这套方法推进任务：
+
+```bash
+ccli harness --playbook
+```
+
 查看 14 步驾驭路线图：
 
 ```bash
@@ -583,6 +591,7 @@ ccli harness --roadmap
 ccli "补齐驾驭系统"
 ccli "检查当前驾驭系统状态"
 ccli "驾驭系统怎么用"
+ccli "给我驾驭实操剧本"
 ccli "查看驾驭路线图"
 ```
 
@@ -633,7 +642,7 @@ ccli harness --expert
 - 控制口令，可用 `ccli hardware "取消" --json` 或 `ccli hardware "帮助" --json` 读取
 - 二次确认口令，可在高影响动作后继续调用 `ccli hardware "确认" --json` 读取 `action-confirmed`
 
-协议不暴露代码、命令、路径和堆栈；硬件按钮只需要把 `say` 里的中文说法作为下一句输入回传，保证用户体验保持普通中文产品语义。
+协议不暴露代码、命令、路径和堆栈；硬件按钮只需要把 `say` 里的中文说法作为下一句输入回传，保证用户体验保持普通中文产品语义。老板和硬件可读的 `--json` 输出都会走公开净化层，不返回后台命令。
 
 示例：
 

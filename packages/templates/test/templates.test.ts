@@ -18,6 +18,8 @@ describe("webTemplateFiles", () => {
     expect(files[".ccli/harness/rules/product.md"]).toContain("产品规则");
     expect(files[".ccli/harness/settings.json"]).toContain("plain-user-autonomous");
     expect(files[".ccli/harness/hooks.json"]).toContain("dangerous-action-gate");
+    expect(files[".ccli/harness/README.md"]).toContain("稳定事实放项目指南");
+    expect(files[".ccli/harness/README.md"]).toContain("先让一次人工触发的任务稳定");
     expect(files[".ccli/harness/agents/reviewer.md"]).toContain("独立审查代理");
     expect(files[".ccli/harness/agents/eval-runner.md"]).toContain("验证执行代理");
     expect(files[".ccli/harness/ROADMAP.md"]).toContain("驾驭路线图");

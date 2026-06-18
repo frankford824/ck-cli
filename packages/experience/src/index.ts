@@ -1170,8 +1170,12 @@ export function toPublicHardwareResponse<T>(response: HardwareResponse<T>): Hard
       audit: undefined,
       actions: response.event.actions?.map(toPublicHardwareAction)
     },
-    data: stripTechnicalPayload(response.data)
+    data: toPublicExperienceData(response.data)
   };
+}
+
+export function toPublicExperienceData<T>(value: T): unknown {
+  return stripTechnicalPayload(value);
 }
 
 export function speechText(event: ExperienceEvent): string {

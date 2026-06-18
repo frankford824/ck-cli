@@ -28,6 +28,7 @@ import {
   renderWelcome,
   speechText,
   starterIdeas,
+  toPublicExperienceData,
   toPublicHardwareResponse
 } from "../src/index.js";
 
@@ -392,6 +393,35 @@ describe("experience", () => {
     expect(serialized).toContain("保留中文业务信息");
     expect(serialized).not.toContain("\"command\"");
     expect(serialized).not.toContain("ccli try");
+    expect(serialized).not.toContain("/tmp/");
+  });
+
+  it("removes command details from public structured data", () => {
+    const plan = {
+      summary: "建议先打开最近产品。",
+      actions: [
+        {
+          id: "open",
+          title: "打开最近产品",
+          reason: "你已经创建过产品，可以先看看效果。",
+          say: "打开我上次做的系统",
+          command: "ccli open",
+          path: "/tmp/project"
+        }
+      ],
+      nested: {
+        cwd: "/tmp/project",
+        message: "保留中文产品信息"
+      }
+    };
+
+    const publicData = toPublicExperienceData(plan);
+    const serialized = JSON.stringify(publicData);
+
+    expect(serialized).toContain("保留中文产品信息");
+    expect(serialized).toContain("打开我上次做的系统");
+    expect(serialized).not.toContain("\"command\"");
+    expect(serialized).not.toContain("ccli open");
     expect(serialized).not.toContain("/tmp/");
   });
 
