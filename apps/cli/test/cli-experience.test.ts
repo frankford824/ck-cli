@@ -90,6 +90,37 @@ describe("cli boss experience", () => {
     }
   });
 
+  it("shows a boss report card after one-sentence product creation", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-one-shot-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "做一个客户跟进系统，能记录客户、跟进和提醒"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 60_000
+        }
+      );
+
+      expect(stdout).toContain("第一个版本已处理完成");
+      expect(stdout).toContain("老板交付卡");
+      expect(stdout).toContain("打开当前产品");
+      expect(stdout).toContain("怎么验收当前产品");
+      expect(stdout).not.toContain("src/App.tsx");
+      expect(stdout).not.toContain(".ccli/");
+      await expect(readFile(join(cwd, "客户跟进系统", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("shows plain Chinese harness context slimming advice", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "ccli-context-"));
