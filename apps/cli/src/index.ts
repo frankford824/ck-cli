@@ -543,7 +543,7 @@ async function checkHealth(cwd: string) {
   const nodeReady = await commandOk("node", ["--version"]);
   const gitReady = await commandOk("git", ["--version"]);
   const pnpmReady = await commandOk("pnpm", ["--version"]);
-  const ghReady = await commandOk("gh", ["auth", "status"]);
+  const ghReady = await commandOk("gh", ["auth", "status", "--hostname", "github.com"], 20_000);
   const inProject = existsSync(resolve(cwd, "package.json")) || existsSync(resolve(cwd, ".git"));
   const hasRoleConfig = Boolean(config.roles && Object.keys(config.roles).length > 0);
   const hasModelKey =
@@ -599,13 +599,13 @@ async function checkHealth(cwd: string) {
   ];
 }
 
-async function commandOk(command: string, args: string[]): Promise<boolean> {
+async function commandOk(command: string, args: string[], timeoutMs = 10_000): Promise<boolean> {
   return new Promise((resolveCommand) => {
     const child = spawn(command, args, { stdio: "ignore", windowsHide: true });
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       resolveCommand(false);
-    }, 10_000);
+    }, timeoutMs);
     child.on("close", (code) => {
       clearTimeout(timer);
       resolveCommand(code === 0);
