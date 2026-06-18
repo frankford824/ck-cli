@@ -9,11 +9,13 @@ import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import {
+  createAcceptanceGuide,
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
   hardwareManifest,
   healthSummary,
+  renderAcceptanceGuide,
   renderBossHome,
   renderHealthReport,
   renderNextActions,
@@ -257,6 +259,22 @@ program
         return;
       }
       print(renderBossHome(home));
+    });
+  });
+
+program
+  .command("accept")
+  .alias("check")
+  .description("生成老板验收清单")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const guide = await buildAcceptanceGuide(cwd);
+      if (options.json) {
+        print(JSON.stringify(guide, null, 2));
+        return;
+      }
+      print(renderAcceptanceGuide(guide));
     });
   });
 
@@ -936,6 +954,26 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isAcceptanceRequest(utterance)) {
+    const guide = await buildAcceptanceGuide(inputValue.cwd);
+    const actions = [
+      utteranceAction("change", "我想改一下", "我想改一下：", "继续提出修改要求"),
+      commandAction("ship", "我满意，准备交付", "ccli ship --merge --yes", "会发送成果、创建审查入口并在审查通过后合并", true),
+      utteranceAction("next", "下一步怎么办", "下一步怎么办")
+    ];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: guide.summary,
+        screen: renderAcceptanceGuide(guide),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "acceptance-guide", guide }
+    );
+  }
+
   if (isHomeRequest(utterance)) {
     const home = await buildBossHome(inputValue.cwd);
     const actions = nextPlanActions({ summary: home.summary, actions: home.actions });
@@ -1189,6 +1227,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isAcceptanceRequest(request)) {
+    print(renderAcceptanceGuide(await buildAcceptanceGuide(inputValue.cwd)));
+    return true;
+  }
+
   if (isHomeRequest(request)) {
     print(renderBossHome(await buildBossHome(inputValue.cwd)));
     return true;
@@ -1264,6 +1307,17 @@ async function buildBossHome(cwd: string) {
   });
 }
 
+async function buildAcceptanceGuide(cwd: string) {
+  const [projects, readiness] = await Promise.all([readProjectRegistry(), previewReadiness(cwd).catch(() => undefined)]);
+  const current = projectForCwd(projects, cwd);
+  const project = current ?? projects[0];
+  return createAcceptanceGuide({
+    productName: current?.name ?? (readiness?.canPreview ? "当前产品" : project?.name),
+    goal: current?.idea ?? project?.idea,
+    canPreview: readiness?.canPreview
+  });
+}
+
 async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
   const [projects, state, readiness] = await Promise.all([
     readProjectRegistry(),
@@ -1296,6 +1350,13 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
       reason: "当前目录已经是可以预览的产品，先看效果最容易判断下一步。",
       say: "打开当前产品页面",
       command: readiness.hasDependencies ? "ccli preview" : "ccli preview --install"
+    });
+    actions.push({
+      id: "accept-current",
+      title: "按清单验收",
+      reason: "打开页面后，用老板能看懂的清单判断是否满意，不需要懂代码。",
+      say: "怎么验收当前产品",
+      command: "ccli accept"
     });
     actions.push({
       id: "improve-current",
@@ -1619,6 +1680,12 @@ function isCurrentPreviewRequest(request: string): boolean {
 function isDoctorRequest(request: string): boolean {
   return /(?:检查|诊断|体检|看看).*(?:电脑|环境|配置|准备好|能不能用|能否使用|是否可用)/.test(request) ||
     /(?:电脑|环境|配置).*(?:检查|诊断|体检|准备好|能不能用|能否使用|是否可用)/.test(request);
+}
+
+function isAcceptanceRequest(request: string): boolean {
+  return /(?:怎么|如何|怎样).*(?:验收|确认效果|看效果|判断好坏|交付前)/.test(request) ||
+    /(?:验收|验收清单|确认效果|检查效果|通过标准|交付前).*(?:产品|项目|页面|系统|清单|看什么|怎么做)?/.test(request) ||
+    /(?:当前|这个|本地).*(?:产品|项目|页面|系统).*(?:验收|确认效果|检查效果|通过标准)/.test(request);
 }
 
 function isHomeRequest(request: string): boolean {
@@ -2089,6 +2156,14 @@ function resolveProjectSelection(projects: KnownProject[], key: string | undefin
     projects.find((project) => project.name === trimmed) ??
     projects.find((project) => project.name.toLowerCase().includes(normalized))
   );
+}
+
+function projectForCwd(projects: KnownProject[], cwd: string): KnownProject | undefined {
+  const currentPath = resolve(cwd);
+  return projects.find((project) => {
+    const projectPath = resolve(project.path);
+    return currentPath === projectPath || currentPath.startsWith(`${projectPath}/`);
+  });
 }
 
 function projectSummary(project: KnownProject, index: number) {

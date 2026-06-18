@@ -149,6 +149,7 @@ ccli home
 
 ```bash
 ccli "打开当前产品页面"
+ccli "怎么验收当前产品"
 ccli "检查当前电脑是否准备好"
 ```
 
@@ -196,6 +197,15 @@ ccli go "做一个客户管理系统，能记录客户、跟进和提醒"
 ```bash
 ccli create "做一个客户管理系统，能记录客户、跟进和提醒"
 ```
+
+看到页面后，用中文验收清单判断是否满意：
+
+```bash
+ccli accept
+ccli "怎么验收当前产品"
+```
+
+不满意就直接说想改哪里；满意后再说“我满意，准备交付”。
 
 如果已经在项目里，也可以不用学命令，直接说目标：
 
@@ -427,6 +437,7 @@ ccli harness --expert
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
+- 老板验收清单，可用 `ccli accept --json` 读取
 - 产品场景库，可用 `ccli ideas --json` 读取
 - 下一步建议，可用 `ccli next --json` 读取
 - 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
@@ -438,6 +449,7 @@ ccli harness --expert
 ```bash
 ccli hardware "下一步怎么办" --json
 ccli hardware "我第一次用怎么开始" --json
+ccli hardware "怎么验收当前产品" --json
 ccli hardware "给我几个产品模板" --json
 ccli hardware "做一个库存看板，能看低库存" --json
 ccli hardware "查看我的产品" --json
