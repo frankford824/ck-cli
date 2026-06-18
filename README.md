@@ -153,6 +153,7 @@ ccli harness --init
 ccli harness --method
 ccli harness --playbook
 ccli harness --context
+ccli harness --scan
 ccli harness --loop
 ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
@@ -541,6 +542,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - `ccli harness` 会给出中文健康度、已具备能力、缺口和下一步建议。
 - `ccli harness --playbook` 会把 Harness Engineering 变成当天可执行剧本：开工前定边界、阶段工具收敛、验证失败回流、独立复核、结束写现场和经验沉淀。
 - `ccli harness --context` 会检查长期事实是否过长，提示哪些内容应该拆到技能、规则或记忆里。
+- `ccli harness --scan` 会在共享支架、复用到新项目或开启自动循环前，扫描疑似密钥、过宽权限和缺失护栏。
 - `ccli harness --roadmap` 会按 14 步路线评估当前项目：哪些已具备、哪些先补、哪些后续再做。
 - `ccli harness --loop` 会先判断项目是否适合自动循环：范围、节奏、完成标准、必须停下来的情况都会用中文说明。
 - `ccli learn` 会把一句“以后不要再这样”沉淀成项目经验。
@@ -584,6 +586,12 @@ ccli harness --playbook
 ccli harness --context
 ```
 
+共享或自动循环前扫描支架风险：
+
+```bash
+ccli harness --scan
+```
+
 查看 14 步驾驭路线图：
 
 ```bash
@@ -603,6 +611,7 @@ ccli "补齐驾驭系统"
 ccli "检查当前驾驭系统状态"
 ccli "驾驭系统怎么用"
 ccli "给我驾驭实操剧本"
+ccli "共享前扫描驾驭系统风险"
 ccli "查看驾驭路线图"
 ccli "检查自动循环是否就绪"
 ```

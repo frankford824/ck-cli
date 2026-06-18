@@ -17,11 +17,13 @@ import {
   renderHarnessContextHygiene,
   analyzeHarnessPlaybook,
   analyzeHarnessLoopReadiness,
+  analyzeHarnessScan,
   renderHarnessPlaybook,
   renderHarnessLoopReadiness,
   renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessRoadmap,
+  renderHarnessScan,
   renderHarnessSummary,
   writeHarnessProgress
 } from "../src/index.js";
@@ -394,6 +396,42 @@ describe("harness", () => {
       expect(rendered).toContain("验证通过、独立审查通过");
       expect(rendered).not.toMatch(/\bccli\s/);
       expect(rendered).not.toContain(".ccli/");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scans a harness before sharing without exposing sensitive text", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-scan-"));
+    try {
+      await writeFile(join(root, "CCLI.md"), "项目固定事实：OPENAI_API_KEY=sk-testsecretvalue1234567890\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness"), { recursive: true });
+      await writeFile(
+        join(root, ".ccli", "harness", "settings.json"),
+        JSON.stringify({
+          permissions: {
+            autoApprove: ["读取项目说明", "发布到生产"],
+            confirm: [],
+            deny: []
+          }
+        }),
+        "utf8"
+      );
+
+      const context = await loadHarnessContext(root);
+      const report = analyzeHarnessScan(context);
+      const rendered = renderHarnessScan(report);
+
+      expect(report.safeToShare).toBe(false);
+      expect(report.riskCount).toBeGreaterThanOrEqual(2);
+      expect(rendered).toContain("支架共享扫描");
+      expect(rendered).toContain("敏感信息");
+      expect(rendered).toContain("自动权限");
+      expect(rendered).toContain("执行前硬护栏");
+      expect(rendered).not.toContain("sk-testsecretvalue");
+      expect(rendered).not.toContain("CCLI.md");
+      expect(rendered).not.toContain(".ccli/");
+      expect(rendered).not.toMatch(/```/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

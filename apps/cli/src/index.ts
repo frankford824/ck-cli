@@ -65,6 +65,7 @@ import {
   analyzeHarnessLoopReadiness,
   analyzeHarnessPlaybook,
   analyzeHarnessRoadmap,
+  analyzeHarnessScan,
   loadHarnessContext,
   readHarnessProgress,
   recordHarnessLesson,
@@ -75,6 +76,7 @@ import {
   renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessRoadmap,
+  renderHarnessScan,
   renderHarnessSummary
 } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
@@ -839,8 +841,9 @@ program
   .option("--roadmap", "查看 14 步驾驭路线图")
   .option("--context", "检查长期上下文是否需要瘦身")
   .option("--loop", "检查是否适合开启自动循环")
+  .option("--scan", "共享或自动循环前扫描支架风险")
   .option("--overwrite", "覆盖已有支架文件")
-  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; context?: boolean; loop?: boolean; overwrite?: boolean }) => {
+  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; context?: boolean; loop?: boolean; scan?: boolean; overwrite?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
       if (options.method) {
         print(renderHarnessMethod());
@@ -867,6 +870,20 @@ program
         const context = await loadHarnessContext(cwd);
         const progress = await readHarnessProgress(cwd);
         print(renderHarnessLoopReadiness(analyzeHarnessLoopReadiness(context, progress)));
+        return;
+      }
+      if (options.scan) {
+        const context = await loadHarnessContext(cwd);
+        const progress = await readHarnessProgress(cwd);
+        const report = analyzeHarnessScan(context, progress);
+        print(renderHarnessScan(report));
+        if (expert) {
+          for (const finding of report.findings) {
+            if (finding.expertDetail) {
+              print(`专家定位：${finding.expertDetail}`);
+            }
+          }
+        }
         return;
       }
       if (options.init) {
@@ -2494,6 +2511,13 @@ async function runNaturalLanguageIntent(inputValue: {
 
   if (isHarnessInitRequest(request)) {
     await initializeHarnessForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
+    return true;
+  }
+
+  if (isHarnessScanRequest(request)) {
+    const context = await loadHarnessContext(inputValue.cwd);
+    const progress = await readHarnessProgress(inputValue.cwd);
+    print(renderHarnessScan(analyzeHarnessScan(context, progress)));
     return true;
   }
 
@@ -4150,6 +4174,13 @@ function isHarnessLoopRequest(request: string): boolean {
   return /(?:自动循环|无人值守|定时|循环|loop|自动巡检).*(?:驾驭|harness|智能体支架|开发支架|能不能|是否|适合|就绪|检查|评估)/i.test(request) ||
     /(?:驾驭|harness|智能体支架|开发支架).*(?:自动循环|无人值守|定时|循环|loop|自动巡检)/i.test(request) ||
     /(?:能不能|是否|适合|检查|评估).*(?:自动循环|无人值守|定时|自动巡检|loop)/i.test(request);
+}
+
+function isHarnessScanRequest(request: string): boolean {
+  return /(?:扫描|排查|共享前|发布前|复用前).*(?:支架|驾驭系统|harness|智能体支架|开发支架)/i.test(request) ||
+    /(?:支架|驾驭系统|harness|智能体支架|开发支架).*(?:扫描|排查|共享前|发布前|复用前)/i.test(request) ||
+    /(?:检查).*(?:支架|驾驭系统|harness|智能体支架|开发支架).*(?:风险|密钥|权限|共享|复用|安全)/i.test(request) ||
+    /(?:支架|驾驭系统|harness|智能体支架|开发支架).*(?:风险|密钥|权限|共享|复用|安全).*(?:检查)/i.test(request);
 }
 
 function isHarnessStatusRequest(request: string): boolean {

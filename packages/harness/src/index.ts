@@ -218,6 +218,26 @@ export interface HarnessPlaybookReport {
   steps: HarnessPlaybookStep[];
 }
 
+export type HarnessScanSeverity = "pass" | "watch" | "risk";
+
+export interface HarnessScanFinding {
+  name: string;
+  severity: HarnessScanSeverity;
+  issue: string;
+  impact: string;
+  nextAction: string;
+  expertDetail?: string;
+}
+
+export interface HarnessScanReport {
+  safeToShare: boolean;
+  summary: string;
+  riskCount: number;
+  watchCount: number;
+  findings: HarnessScanFinding[];
+  nextSteps: string[];
+}
+
 const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness/README.md"];
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
@@ -239,6 +259,12 @@ const DESTRUCTIVE_COMMAND = /\b(rm\s+-rf|del\s+\/[sq]|rmdir\s+\/[sq]|chmod\s+-R\
 const DATABASE_COMMAND = /\b(drop\s+database|drop\s+schema|truncate\s+table|prisma\s+migrate\s+deploy|sequelize\s+db:migrate|rails\s+db:migrate)\b/i;
 const PUBLISH_OR_DEPLOY_COMMAND = /\b(npm\s+publish|pnpm\s+publish|yarn\s+npm\s+publish|docker\s+push|wrangler\s+deploy|vercel\s+--prod|netlify\s+deploy\s+--prod|firebase\s+deploy|kubectl\s+apply|helm\s+upgrade|terraform\s+apply|pulumi\s+up)\b/i;
 const FORCE_PUSH = /\bgit\s+push\b[\s\S]*(?:--force|-f)(?:[\s;&|]|$)/i;
+const HARNESS_SECRET_VALUE =
+  /(sk-[a-z0-9_-]{20,}|gh[pousr]_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
+const HARNESS_SECRET_ASSIGNMENT =
+  /\b(?:api[_-]?key|token|secret|password|passwd|credential|private[_-]?key)\b\s*[:=]\s*["']?[a-z0-9_./+=-]{16,}/i;
+const OVERBROAD_AUTO_PERMISSION =
+  /(删除|密钥|证书|生产|发布|部署|数据库|迁移|推送|合并|远程脚本|强制|覆盖|主线|main|master|force|publish|deploy|secret|credential|database|migration|push|merge|prod)/i;
 
 export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
   const [standingFacts, rules, skills, artifacts, agents, memories, settings, hookPlan] = await Promise.all([
@@ -762,6 +788,108 @@ export function renderHarnessLoopReadiness(report: HarnessLoopReadinessReport): 
     .join("\n");
 }
 
+export function analyzeHarnessScan(context: HarnessContext, progress?: HarnessProgress): HarnessScanReport {
+  const documents = [
+    ...context.standingFacts,
+    ...context.rules,
+    ...context.skills,
+    ...context.artifacts,
+    ...context.agents,
+    ...context.memories
+  ];
+  const secretDocuments = documents.filter((document) => hasHarnessSecretSignal(document.content));
+  const autoApprove = context.settings?.permissions?.autoApprove ?? [];
+  const confirm = context.settings?.permissions?.confirm ?? [];
+  const deny = context.settings?.permissions?.deny ?? [];
+  const overbroadAutoApprove = autoApprove.filter((item) => OVERBROAD_AUTO_PERMISSION.test(item));
+  const hasBeforeToolBlock = Boolean(context.hookPlan?.hooks.some((hook) => hook.when === "before-tool" && hook.blocks));
+  const hasReviewGate = Boolean(context.hookPlan?.hooks.some((hook) => hook.id === "review-before-ship" && hook.blocks));
+  const loopReadiness = analyzeHarnessLoopReadiness(context, progress);
+  const contextHygiene = analyzeHarnessContextHygiene(context);
+
+  const findings: HarnessScanFinding[] = [
+    secretDocuments.length
+      ? scanFinding(
+          "敏感信息",
+          "risk",
+          `发现 ${secretDocuments.length} 处疑似授权信息。`,
+          "如果把这套支架分享给别人，可能把账号、模型或代码平台权限一起带出去。",
+          "先移除敏感内容，只保留环境变量名称或中文说明。",
+          `疑似敏感文件：${secretDocuments.map((document) => document.path).join("、")}`
+        )
+      : scanFinding("敏感信息", "pass", "没有在支架内容里发现明显授权串。", "支架更适合复制到新项目。", "继续把密钥放在系统环境或全局配置里。"),
+    overbroadAutoApprove.length
+      ? scanFinding(
+          "自动权限",
+          "risk",
+          "自动执行范围里混入了高影响动作。",
+          "模型可能在用户没理解影响前执行删除、推送、发布或生产类动作。",
+          "把这些动作移到中文确认或默认禁止里。",
+          `过宽自动权限：${overbroadAutoApprove.join("、")}`
+        )
+      : scanFinding("自动权限", "pass", "自动执行范围没有发现明显高影响动作。", "普通任务可以少打断，高风险动作仍可被拦住。", "继续保持低风险自动、高影响确认。"),
+    confirm.length && deny.length
+      ? scanFinding("确认和禁止清单", "pass", "已经区分必须确认和默认禁止的动作。", "普通用户不需要理解技术命令，也能先看到影响说明。", "继续把不可逆动作留在确认或禁止清单。")
+      : scanFinding("确认和禁止清单", "watch", "确认或禁止清单不完整。", "高影响动作容易回到临场判断，长任务会不稳定。", "补齐删除、密钥、数据库、发布、生产、推送和合并类护栏。"),
+    hasBeforeToolBlock
+      ? scanFinding("执行前硬护栏", "pass", "危险动作会在执行前被确定性检查。", "删除、密钥、远程脚本和生产动作不只靠模型自觉。", "继续保留执行前拦截。")
+      : scanFinding("执行前硬护栏", "risk", "缺少执行前阻断护栏。", "模型即使理解错规则，也可能先执行再补救。", "补齐危险动作拦截钩子。"),
+    hasReviewGate
+      ? scanFinding("交付前复核", "pass", "交付前已经要求独立复核。", "开发和评估分开，减少自己证明自己正确。", "继续让审查代理检查目标、验证和风险。")
+      : scanFinding("交付前复核", "watch", "交付前复核护栏还不完整。", "结果可能由开发代理自己宣布完成。", "补齐交付前独立审查。"),
+    loopReadiness.canRunUnattended
+      ? scanFinding("自动循环", "pass", "自动循环具备小范围使用条件。", "可以用于低风险巡检，但交付和生产仍要确认。", "先从低风险维护循环开始。")
+      : scanFinding("自动循环", "watch", "暂不建议无人值守循环。", "循环会放大现有支架缺口。", loopReadiness.nextSteps[0] ?? "先让一次人工触发任务稳定通过。"),
+    contextHygiene.status === "bloated"
+      ? scanFinding("上下文体积", "watch", "长期上下文偏重。", "模型每次开工都会背上过多无关信息，成本和跑偏概率都会变高。", "把流程拆到技能，把禁区拆到规则，只保留稳定事实。")
+      : scanFinding("上下文体积", "pass", "长期上下文没有明显过载。", "每次开工更容易聚焦当前任务。", "继续保持事实短小，流程放技能。")
+  ];
+
+  const riskCount = findings.filter((finding) => finding.severity === "risk").length;
+  const watchCount = findings.filter((finding) => finding.severity === "watch").length;
+  const nextSteps = findings
+    .filter((finding) => finding.severity !== "pass")
+    .map((finding) => finding.nextAction)
+    .slice(0, 3);
+
+  return {
+    safeToShare: riskCount === 0,
+    summary:
+      riskCount > 0
+        ? "这套支架还不适合共享或放进自动循环，先处理高风险项。"
+        : watchCount > 0
+          ? "这套支架没有发现必须阻止共享的风险，但仍有几项建议先收紧。"
+          : "这套支架没有发现明显共享风险，可以作为项目默认支架继续使用。",
+    riskCount,
+    watchCount,
+    findings,
+    nextSteps
+  };
+}
+
+export function renderHarnessScan(report: HarnessScanReport): string {
+  const severityText: Record<HarnessScanSeverity, string> = {
+    pass: "通过",
+    watch: "留意",
+    risk: "风险"
+  };
+  const lines = report.findings.map(
+    (finding, index) =>
+      `${index + 1}. ${severityText[finding.severity]}｜${finding.name}：${finding.issue} 影响：${finding.impact} 建议：${finding.nextAction}`
+  );
+
+  return [
+    `支架共享扫描：${report.safeToShare ? "没有发现必须阻止共享的风险" : "发现必须先处理的风险"}。`,
+    report.summary,
+    `风险项 ${report.riskCount} 个，需要留意 ${report.watchCount} 个。`,
+    "检查结果：",
+    ...lines,
+    report.nextSteps.length ? `建议下一步：\n${report.nextSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function progressSnapshot(input: {
   task: string;
   currentStage: HarnessStage;
@@ -1012,6 +1140,28 @@ function loopCheck(
     userValue,
     missingAction
   };
+}
+
+function scanFinding(
+  name: string,
+  severity: HarnessScanSeverity,
+  issue: string,
+  impact: string,
+  nextAction: string,
+  expertDetail?: string
+): HarnessScanFinding {
+  return {
+    name,
+    severity,
+    issue,
+    impact,
+    nextAction,
+    expertDetail
+  };
+}
+
+function hasHarnessSecretSignal(content: string): boolean {
+  return HARNESS_SECRET_VALUE.test(content) || HARNESS_SECRET_ASSIGNMENT.test(content);
 }
 
 export function renderHarnessReadiness(report: HarnessReadinessReport): string {
