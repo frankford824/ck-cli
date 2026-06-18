@@ -39,6 +39,8 @@ export function welcomeCard(): WelcomeCard {
     nextActions: [
       "首次设置：ccli setup",
       "最快体验：ccli go \"做一个客户管理系统\"",
+      "查看我的产品：ccli projects",
+      "打开最近产品：ccli open",
       "一句话创建产品：ccli create \"做一个客户管理系统\"",
       "查看本地页面：ccli preview --install",
       "创建空项目：ccli new 我的应用",
@@ -49,6 +51,7 @@ export function welcomeCard(): WelcomeCard {
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
       "一键做一个门店预约系统并打开页面",
+      "打开我上次做的系统",
       "把首页改得更像高端咨询公司",
       "给客户列表增加搜索和导出",
       "检查这个项目为什么不能正常启动",
@@ -112,7 +115,7 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice"],
+    output: ["speech", "screen", "choice", "project-catalog"],
     events: ["welcome", "ask", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
