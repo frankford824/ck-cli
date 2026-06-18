@@ -339,6 +339,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("confirmation-empty");
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
+    expect(hardwareManifest().output).toContain("boss-wizard");
     expect(hardwareManifest().output).toContain("question-card");
     expect(hardwareManifest().output).toContain("brief-card");
     expect(hardwareManifest().output).toContain("approval-receipt");
@@ -365,6 +366,7 @@ describe("experience", () => {
     expect(schema.kinds).toContain("confirmation-empty");
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
+    expect(schema.kinds).toContain("boss-wizard");
     expect(schema.kinds).toContain("question-card");
     expect(schema.kinds).toContain("brief-card");
     expect(schema.kinds).toContain("approval-receipt");

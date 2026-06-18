@@ -1206,6 +1206,23 @@ function questionCardActions(card: BossQuestionCard): ExperienceAction[] {
   );
 }
 
+function bossWizardHardwareActions(card: BossQuestionCard): ExperienceAction[] {
+  const actions = [
+    utteranceAction("answer-now", "我来回答", hardwareAnswerExample(card), "按三个问题直接回答，ccli 会整理成业务简报。"),
+    ...questionCardActions(card).filter((action) => action.id !== "ideas"),
+    utteranceAction("safe-demo", "先安全试用", "试用一下")
+  ];
+  return actions.slice(0, 4);
+}
+
+function hardwareAnswerExample(card: BossQuestionCard): string {
+  const audience = card.questions[0]?.examples[0] ?? "老板和一线同事";
+  const firstScreen = card.questions[1]?.examples[0] ?? "最重要的业务重点";
+  const passCondition = card.questions[2]?.examples[0] ?? "能看懂重点并完成核心动作";
+  const goal = card.goal ? `目标：${card.goal}；` : "";
+  return `我的回答是：${goal}使用者：${audience}；第一眼最想看到：${firstScreen}；首版通过条件：${passCondition}`;
+}
+
 function controlRecoveryActions(): ExperienceAction[] {
   return [
     utteranceAction("home", "回到开箱首页", "打开开箱首页"),
@@ -1446,22 +1463,18 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
 
   if (isWizardRequest(utterance)) {
     const idea = wizardIdeaFromNaturalRequest(utterance);
-    const command = idea ? `ccli wizard ${shellQuote(idea)}` : "ccli wizard";
-    const actions = [
-      commandAction("open-boss-wizard", "打开开工向导", command, "在终端里问四个业务问题，并保存成业务简报。"),
-      utteranceAction("question-card", "先看追问卡", idea ? `帮我澄清需求：${idea}` : "帮我澄清需求"),
-      utteranceAction("safe-demo", "先安全试用", "试用一下")
-    ];
+    const card = await buildBossQuestionCard(inputValue.cwd, idea);
+    const actions = bossWizardHardwareActions(card);
     return finalize(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
-        say: "可以进入老板开工向导。它会问四个业务问题，然后生成可直接开工的业务简报。",
-        screen: "老板开工向导\n会确认：想做什么、谁来用、第一眼看什么、怎样算首版通过。",
+        say: "我先问三个问题。你可以一次说完答案，我会整理成可开工的业务简报。",
+        screen: renderBossQuestionCard(card),
         choices: choicesFromActions(actions),
         actions
       }),
-      { kind: "boss-wizard", command, idea }
+      { kind: "boss-wizard", idea, card, answerExample: hardwareAnswerExample(card) }
     ));
   }
 
