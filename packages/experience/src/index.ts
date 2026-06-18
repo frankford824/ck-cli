@@ -358,9 +358,6 @@ export function renderNextActions(plan: NextActionPlan): string {
     lines.push(`${index + 1}. ${action.title}`);
     lines.push(`原因：${action.reason}`);
     lines.push(`直接说：${action.say}`);
-    if (action.command) {
-      lines.push(`也可以执行：${action.command}`);
-    }
     lines.push("");
   }
   return lines.join("\n").trim();
