@@ -29,6 +29,9 @@ importers:
       '@ccli/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@ccli/experience':
+        specifier: workspace:*
+        version: link:../../packages/experience
       '@ccli/memory':
         specifier: workspace:*
         version: link:../../packages/memory
@@ -97,6 +100,15 @@ importers:
       '@types/node':
         specifier: ^22.15.30
         version: 22.19.21
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/experience:
+    devDependencies:
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)

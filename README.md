@@ -35,6 +35,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 
 ```bash
 ccli --help
+ccli
 ccli roles
 ```
 
@@ -85,6 +86,10 @@ pnpm dev --help
 ## 常用命令
 
 ```bash
+ccli
+ccli doctor
+ccli chat
+ccli "给订单页面增加导出按钮"
 ccli new demo
 ccli do "添加一个登录页面"
 ccli status
@@ -96,7 +101,46 @@ ccli audit --expert
 ccli roles --expert
 ccli design --expert
 ccli memory search "登录页面" --expert
+ccli hardware --expert
 ```
+
+## 老板上手方式
+
+安装后直接输入：
+
+```bash
+ccli
+```
+
+它会显示中文欢迎页和下一步建议。你也可以不用学命令，直接说目标：
+
+```bash
+ccli "把首页改得更像高端咨询公司"
+```
+
+如果想连续沟通：
+
+```bash
+ccli chat
+```
+
+如果不确定电脑是否配置好：
+
+```bash
+ccli doctor
+```
+
+`doctor` 只用中文说明哪些能力已经就绪、哪些需要处理。普通模式不会显示命令、路径、堆栈或底层错误。
+
+## 智能硬件预留
+
+`ccli hardware` 会输出面向语音和智能硬件的交互协议摘要。后续硬件只需要把语音转成文字交给 ccli，并接收三类输出：
+
+- 中文朗读内容
+- 屏幕提示内容
+- 可选按钮/选择项
+
+协议不暴露代码、命令、路径和堆栈，保证用户体验保持普通中文产品语义。
 
 ## 自动交付
 

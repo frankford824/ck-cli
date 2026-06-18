@@ -10,6 +10,7 @@ export default defineConfig({
     conditions: ["source"],
     alias: {
       "@ccli/agent-core": fileURLToPath(new URL("./packages/agent-core/src/index.ts", import.meta.url)),
+      "@ccli/experience": fileURLToPath(new URL("./packages/experience/src/index.ts", import.meta.url)),
       "@ccli/memory": fileURLToPath(new URL("./packages/memory/src/index.ts", import.meta.url)),
       "@ccli/methodology": fileURLToPath(new URL("./packages/methodology/src/index.ts", import.meta.url)),
       "@ccli/policy": fileURLToPath(new URL("./packages/policy/src/index.ts", import.meta.url)),
