@@ -199,6 +199,48 @@ describe("cli boss experience", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("gives a clear setup fallback when model authorization is missing", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-setup-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "setup"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home,
+            OPENAI_API_KEY: "",
+            ANTHROPIC_API_KEY: "",
+            GOOGLE_API_KEY: "",
+            GEMINI_API_KEY: "",
+            QWEN_API_KEY: "",
+            DASHSCOPE_API_KEY: "",
+            DEEPSEEK_API_KEY: "",
+            KIMI_API_KEY: "",
+            MOONSHOT_API_KEY: ""
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("还没有完成模型授权");
+      expect(stdout).toContain("接上智能开发能力");
+      expect(stdout).toContain("直接说：试用一下");
+      expect(stdout).toContain("直接说：给我几个产品模板");
+      expect(stdout).toContain("授权码不适合通过语音或公共屏幕输入");
+      expect(stdout).not.toContain("OPENAI_API_KEY");
+      expect(stdout).not.toContain(".ccli");
+      expect(stdout).not.toContain("config.json");
+      expect(stdout).not.toMatch(/```/);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 async function runCliWithInput(

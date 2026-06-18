@@ -3076,7 +3076,8 @@ async function runSetupWizard(inputValue: {
       await saveModelSetup(provider, apiKey);
       print(inputValue.renderer.render({ type: "done", message: "模型授权已保存。后续项目会自动继承这次设置。", severity: "success" }));
     } else {
-      print(inputValue.renderer.render({ type: "risk", message: "已暂时跳过模型授权。现在仍可创建项目、记录需求和走本地流程。", severity: "warning" }));
+      print(inputValue.renderer.render({ type: "risk", message: "还没有完成模型授权。现在仍可创建项目、记录需求和安全试用。", severity: "warning" }));
+      print(renderModelAuthorizationGuide(provider));
     }
 
     const projectName = inputValue.project ?? (input.isTTY ? (await rl.question("要不要顺手创建第一个项目？输入项目名，直接回车跳过：")).trim() : "");
@@ -4838,6 +4839,26 @@ async function resolveSetupProvider(
     throw new Error("没有识别这个模型服务。请重新运行首次设置。");
   }
   return normalized;
+}
+
+function renderModelAuthorizationGuide(provider?: SupportedProviderId): string {
+  const providerLabel = provider ? PROVIDER_PRESETS[provider].label : "你已经有授权的模型服务";
+  const selected = provider ? `已选择：${providerLabel}，还差授权码。` : "还没有选择或保存模型授权。";
+  return [
+    "接上智能开发能力",
+    "",
+    selected,
+    "",
+    "可以这样继续：",
+    "1. 已经有授权码",
+    `在电脑终端重新开始首次设置，选择${providerLabel}，按提示粘贴授权码。`,
+    "2. 暂时没有授权码",
+    "直接说：试用一下",
+    "3. 先看能做什么",
+    "直接说：给我几个产品模板",
+    "",
+    "提示：授权码不适合通过语音或公共屏幕输入；智能硬件可以先走试用和模板流程。"
+  ].join("\n");
 }
 
 async function resolveSetupApiKey(
