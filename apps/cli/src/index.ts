@@ -9,10 +9,12 @@ import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import {
+  createBossHome,
   createExperienceEvent,
   createHardwareResponse,
   hardwareManifest,
   healthSummary,
+  renderBossHome,
   renderHealthReport,
   renderNextActions,
   renderStarterIdeas,
@@ -20,6 +22,7 @@ import {
   speechText,
   starterIdeas,
   type ExperienceAction,
+  type HealthReport,
   type NextAction,
   type NextActionPlan,
   type StarterIdea
@@ -238,6 +241,22 @@ program
     await withCli(async ({ renderer, cwd, expert }) => {
       const report = healthSummary(await checkHealth(cwd));
       print(renderHealthReport(report, expert));
+    });
+  });
+
+program
+  .command("home")
+  .alias("launch")
+  .description("打开老板开箱驾驶舱")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const home = await buildBossHome(cwd);
+      if (options.json) {
+        print(JSON.stringify(home, null, 2));
+        return;
+      }
+      print(renderBossHome(home));
     });
   });
 
@@ -917,6 +936,22 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isHomeRequest(utterance)) {
+    const home = await buildBossHome(inputValue.cwd);
+    const actions = nextPlanActions({ summary: home.summary, actions: home.actions });
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: `${home.readiness} ${home.summary}`,
+        screen: renderBossHome(home),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "boss-home", home }
+    );
+  }
+
   if (isNextActionRequest(utterance)) {
     const plan = await buildNextActionPlan(inputValue.cwd);
     const actions = nextPlanActions(plan);
@@ -1094,6 +1129,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isHomeRequest(request)) {
+    print(renderBossHome(await buildBossHome(inputValue.cwd)));
+    return true;
+  }
+
   if (isNextActionRequest(request)) {
     print(renderNextActions(await buildNextActionPlan(inputValue.cwd)));
     return true;
@@ -1152,6 +1192,16 @@ async function runNaturalLanguageIntent(inputValue: {
   }
 
   return false;
+}
+
+async function buildBossHome(cwd: string) {
+  const [healthItems, nextPlan] = await Promise.all([checkHealth(cwd), buildNextActionPlan(cwd)]);
+  const health: HealthReport = healthSummary(healthItems);
+  return createBossHome({
+    health,
+    nextPlan,
+    ideas: starterIdeas()
+  });
 }
 
 async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
@@ -1457,6 +1507,11 @@ function isProjectOpenCheckRequest(request: string): boolean {
     /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request) ||
     /(?:检查|确认|看看).*(?:上次|最近|之前|产品|项目|应用|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request)
   );
+}
+
+function isHomeRequest(request: string): boolean {
+  return /(?:开箱|首页|主页|驾驶舱|工作台|新手|第一次用|刚开始|上手|怎么开始|如何开始|从哪开始|怎么用|如何用|入口)/.test(request) ||
+    /(?:我要|我想|帮我).*(?:开始|上手|开工)/.test(request);
 }
 
 function isNextActionRequest(request: string): boolean {
