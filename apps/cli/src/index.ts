@@ -3222,18 +3222,18 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
   const hasCurrentProduct = Boolean(readiness?.canPreview);
   if (!projects.length && !hasCurrentProduct) {
     actions.push({
+      id: "one-shot-product",
+      title: "直接一句话开工",
+      reason: "不用先学命令或写需求文档，直接说一个业务目标就能生成首版产品。",
+      say: "做一个客户跟进系统，能记录客户、跟进和提醒",
+      command: "ccli go"
+    });
+    actions.push({
       id: "boss-wizard",
       title: "先问清楚业务目标",
       reason: "用几句中文把目标用户、首屏重点和验收标准固定下来，后面开发更稳。",
       say: "一步步问我，然后开工",
       command: "ccli wizard"
-    });
-    actions.push({
-      id: "harness-init",
-      title: "补齐驾驭支架",
-      reason: "先放好项目规则、权限护栏、验证反馈和进度记忆，避免长任务跑偏。",
-      say: "补齐驾驭系统",
-      command: "ccli harness --init"
     });
     actions.push({
       id: "try-demo",
@@ -3255,6 +3255,16 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
     say: "给我几个产品模板",
     command: "ccli ideas"
   });
+
+  if (!projects.length && !hasCurrentProduct) {
+    actions.push({
+      id: "harness-init",
+      title: "补齐驾驭支架",
+      reason: "先放好项目规则、权限护栏、验证反馈和进度记忆，避免长任务跑偏。",
+      say: "补齐驾驭系统",
+      command: "ccli harness --init"
+    });
+  }
 
   actions.push({
     id: "doctor",
@@ -3293,7 +3303,7 @@ function nextActionSummary(inputValue: { state?: CcliState; canPreview: boolean;
   if (inputValue.projectCount > 0) {
     return "你已经有产品记录，建议先打开最近产品继续。";
   }
-  return "当前还没有产品，建议先用开工向导问清楚业务目标，再决定生成首版或安全试用。";
+  return "当前还没有产品，可以直接说一个业务目标生成首版；不确定时再用开工向导或安全试用。";
 }
 
 async function runTryDemo(inputValue: {

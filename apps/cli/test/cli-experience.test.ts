@@ -47,10 +47,43 @@ describe("cli boss experience", () => {
       );
 
       expect(stdout).toContain("当前还没有产品");
+      expect(stdout).toContain("直接一句话开工");
+      expect(stdout).toContain("做一个客户跟进系统，能记录客户、跟进和提醒");
       expect(stdout).toContain("一步步问我，然后开工");
+      expect(stdout.indexOf("直接一句话开工")).toBeLessThan(stdout.indexOf("一步步问我，然后开工"));
       expect(stdout).not.toContain("已经不存在的产品");
       expect(stdout).not.toContain("打开最近产品");
       expect(stdout).not.toContain("打开我上次做的系统");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("puts one-sentence product creation first on the empty home screen", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-empty-home-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "home"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("老板开箱驾驶舱");
+      expect(stdout).toContain("现在最建议做");
+      expect(stdout).toContain("直接一句话开工");
+      expect(stdout).toContain("做一个客户跟进系统，能记录客户、跟进和提醒");
+      expect(stdout).not.toContain("ccli go");
+      expect(stdout.indexOf("直接一句话开工")).toBeLessThan(stdout.indexOf("一步步问我，然后开工"));
     } finally {
       await rm(home, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
