@@ -57,7 +57,7 @@ describe("tools", () => {
                 number: 7,
                 html_url: "https://github.com/owner/repo/pull/7",
                 state: "open",
-                draft: false,
+                draft: true,
                 merged_at: null,
                 mergeable: true,
                 head: { ref: "feature/demo", sha: "abc" },
@@ -72,6 +72,7 @@ describe("tools", () => {
       const pr = await new GitHubTool().findOpenPrForCurrentBranch({ cwd });
 
       expect(pr?.number).toBe(7);
+      expect(pr?.draft).toBe(true);
       expect(pr?.url).toContain("/pull/7");
     } finally {
       await rm(cwd, { recursive: true, force: true });
