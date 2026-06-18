@@ -1590,14 +1590,56 @@ async function startConfirmedHardwareAction(
 
 function hardwareActionCommand(action: ExperienceAction): string | undefined {
   if (action.kind === "command" && action.command?.trim()) {
-    return withYesFlag(action.command.trim());
+    return withYesFlag(withHardwareBackgroundFlags(action.command.trim(), action));
   }
   const say = action.say?.trim();
   return say ? `ccli ${shellQuote(say)} --yes` : undefined;
 }
 
+function withHardwareBackgroundFlags(command: string, action: ExperienceAction): string {
+  if (action.id === "confirm-create-product" && /^ccli\s+go(?:\s|$)/.test(command) && !/\s--no-preview(?:\s|$)/.test(command)) {
+    return `${command} --no-preview`;
+  }
+  return command;
+}
+
 function runtimeCcliCommand(command: string): string {
-  return command.replace(/^ccli(?=\s|$)/, `${shellQuote(process.execPath)} ${shellQuote(process.argv[1] ?? "ccli")}`);
+  const execArgs = runtimeNodeExecArgs().map(shellQuote).join(" ");
+  const nodeCommand = [shellQuote(process.execPath), execArgs, shellQuote(process.argv[1] ?? "ccli")].filter(Boolean).join(" ");
+  return command.replace(/^ccli(?=\s|$)/, nodeCommand);
+}
+
+function runtimeNodeExecArgs(): string[] {
+  const args: string[] = [];
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const arg = process.execArgv[index] ?? "";
+    if ((arg === "--import" || arg === "--loader") && process.execArgv[index + 1]) {
+      args.push(arg, resolveRuntimeNodeSpecifier(process.execArgv[index + 1] ?? ""));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--import=")) {
+      args.push(`--import=${resolveRuntimeNodeSpecifier(arg.slice("--import=".length))}`);
+      continue;
+    }
+    if (arg.startsWith("--loader=")) {
+      args.push(`--loader=${resolveRuntimeNodeSpecifier(arg.slice("--loader=".length))}`);
+      continue;
+    }
+    args.push(arg);
+  }
+  return args;
+}
+
+function resolveRuntimeNodeSpecifier(specifier: string): string {
+  if (/^(?:file:|node:|data:|\/|\.{1,2}\/)/.test(specifier)) {
+    return specifier;
+  }
+  try {
+    return import.meta.resolve(specifier);
+  } catch {
+    return specifier;
+  }
 }
 
 function withYesFlag(command: string): string {
@@ -4160,13 +4202,19 @@ function isUndoRequest(request: string): boolean {
 }
 
 function isHarnessMethodRequest(request: string): boolean {
-  return /(?:怎么|如何|方法|原理|介绍|说明|使用).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
-    /(?:驾驭|harness|智能体支架|开发支架).*(?:怎么|如何|方法|原理|介绍|说明|使用)/i.test(request);
+  return /(?:怎么|如何|方法|原理|介绍|说明|使用|研究|拆解).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
+    /(?:驾驭|harness|智能体支架|开发支架).*(?:怎么|如何|方法|原理|介绍|说明|使用|研究|拆解)/i.test(request) ||
+    (hasHarnessTopic(request) && /(?:研究|拆解|介绍|说明|理解).*(?:这篇文章|这个方法|这个思路|方法|原理)/i.test(request));
 }
 
 function isHarnessPlaybookRequest(request: string): boolean {
   return /(?:实操|落地|怎么用|如何用|今天|日常|剧本|步骤).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
-    /(?:驾驭|harness|智能体支架|开发支架).*(?:实操|落地|怎么用|如何用|今天|日常|剧本|步骤)/i.test(request);
+    /(?:驾驭|harness|智能体支架|开发支架).*(?:实操|落地|怎么用|如何用|今天|日常|剧本|步骤)/i.test(request) ||
+    (hasHarnessTopic(request) && /(?:研究|使用|应用|落地|套用|照着).*(?:这篇文章|这个方法|这个思路|程序|项目|产品|ccli|cli|CLI)/i.test(request));
+}
+
+function hasHarnessTopic(request: string): boolean {
+  return /(?:驾驭|harness|智能体支架|开发支架|外部支架|模型\s*\+\s*(?:外部)?支架|agent\s*=\s*model|Claude\s+Code|Claude)/i.test(request);
 }
 
 function isHarnessRoadmapRequest(request: string): boolean {

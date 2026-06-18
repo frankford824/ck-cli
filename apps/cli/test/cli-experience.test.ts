@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
@@ -231,6 +232,45 @@ describe("cli boss experience", () => {
     }
   });
 
+  it("routes article-style harness study requests to a plain Chinese playbook", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-harness-article-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [
+          "--conditions",
+          "source",
+          "--import",
+          "tsx",
+          "apps/cli/src/index.ts",
+          "--cwd",
+          cwd,
+          "研究怎么使用这篇文章的方法：Agent = Model + Harness，Claude 的 Harness Engineering 怎么落地到 ccli 程序"
+        ],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("驾驭实操剧本");
+      expect(stdout).toContain("当前重点");
+      expect(stdout).toContain("自动循环判断");
+      expect(stdout).toContain("验证失败先回流修复");
+      expect(stdout).not.toContain(".ccli/");
+      expect(stdout).not.toMatch(/```/);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("accepts Chinese confirmation for high impact terminal actions", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
     const project = await mkdtemp(join(tmpdir(), "ccli-confirm-product-"));
@@ -340,6 +380,70 @@ describe("cli boss experience", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("finishes hardware one-sentence product creation in the background", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-hardware-create-"));
+    const env = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home
+    };
+    try {
+      const first = await execFileAsync(
+        process.execPath,
+        [
+          "--conditions",
+          "source",
+          "--import",
+          "tsx",
+          "apps/cli/src/index.ts",
+          "--cwd",
+          cwd,
+          "hardware",
+          "做一个客户跟进系统，能记录客户、跟进和提醒",
+          "--json"
+        ],
+        { cwd: resolve("."), env, timeout: 30_000 }
+      );
+      expect(first.stdout).toContain("确认生成首版产品");
+
+      const confirmed = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "确认", "--json"],
+        { cwd: resolve("."), env, timeout: 30_000 }
+      );
+      expect(confirmed.stdout).toContain("action-started");
+      expect(confirmed.stdout).toContain("给我一个进度汇报");
+
+      let report = "";
+      for (let index = 0; index < 25; index += 1) {
+        await delay(1000);
+        report = (
+          await execFileAsync(
+            process.execPath,
+            ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "给我一个进度汇报", "--json"],
+            { cwd: resolve("."), env, timeout: 30_000 }
+          )
+        ).stdout;
+        if (report.includes("刚完成一个后台动作") || report.includes("已经结束")) {
+          break;
+        }
+      }
+
+      expect(report).toContain("老板交付卡");
+      expect(report).toContain("客户跟进系统");
+      expect(report).toContain("打开当前产品");
+      expect(report).toContain("怎么验收当前产品");
+      expect(report).not.toContain("当前仍在处理");
+      expect(report).not.toContain("hardware-runs");
+      expect(report).not.toContain("pid");
+      await expect(readFile(join(cwd, "客户跟进系统", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("gives a clear setup fallback when model authorization is missing", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
