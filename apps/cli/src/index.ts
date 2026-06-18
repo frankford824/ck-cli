@@ -876,7 +876,10 @@ function isProjectOpenRequest(request: string): boolean {
 }
 
 function isProjectOpenCheckRequest(request: string): boolean {
-  return /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request);
+  return (
+    /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request) ||
+    /(?:检查|确认|看看).*(?:上次|最近|之前|产品|项目|应用|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request)
+  );
 }
 
 function isProductCreationRequest(request: string): boolean {
