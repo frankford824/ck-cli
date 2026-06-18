@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -19,6 +19,19 @@ import { AuditSession, readLatestAuditSummary, readState } from "@ccli/session";
 import { createTemplateProject, GitHubTool, GitTool } from "@ccli/tools";
 
 const program = new Command();
+
+const PROVIDER_PRESETS = {
+  openai: { label: "OpenAI", model: "gpt-5", env: ["OPENAI_API_KEY"] },
+  anthropic: { label: "Anthropic Claude", model: "claude-sonnet-4-5", env: ["ANTHROPIC_API_KEY"] },
+  google: { label: "Google Gemini", model: "gemini-3-pro", env: ["GOOGLE_API_KEY", "GEMINI_API_KEY"] },
+  qwen: { label: "通义千问", model: "qwen3-coder-plus", env: ["QWEN_API_KEY", "DASHSCOPE_API_KEY"] },
+  deepseek: { label: "DeepSeek", model: "deepseek-chat", env: ["DEEPSEEK_API_KEY"] },
+  kimi: { label: "Kimi", model: "kimi-latest", env: ["KIMI_API_KEY", "MOONSHOT_API_KEY"] }
+} as const;
+
+type SupportedProviderId = keyof typeof PROVIDER_PRESETS;
+
+const SETUP_ROLES = ["planner", "builder", "reviewer", "presenter"] as const;
 
 program
   .name("ccli")
@@ -123,6 +136,47 @@ program
     await withCli(async ({ renderer, cwd, expert }) => {
       const report = healthSummary(await checkHealth(cwd));
       print(renderHealthReport(report, expert));
+    });
+  });
+
+program
+  .command("setup")
+  .description("用中文完成首次设置")
+  .option("--provider <name>", "模型服务：openai、anthropic、google、qwen、deepseek、kimi")
+  .option("--api-key <key>", "模型授权码")
+  .option("--skip-model", "暂时跳过模型授权")
+  .option("--project <name>", "顺手创建第一个项目")
+  .action(async (options: { provider?: string; apiKey?: string; skipModel?: boolean; project?: string }) => {
+    await withCli(async ({ renderer, cwd }) => {
+      print(renderer.render({ type: "info", message: "开始首次设置。只需要完成模型授权，就可以进入更完整的自动开发。" }));
+      const rl = createInterface({ input, output });
+      let healthCwd = cwd;
+      try {
+        const provider = options.skipModel ? undefined : await resolveSetupProvider(options.provider, rl);
+        const apiKey = provider ? await resolveSetupApiKey(provider, options.apiKey, rl) : undefined;
+        if (provider && apiKey) {
+          await saveModelSetup(provider, apiKey);
+          print(renderer.render({ type: "done", message: "模型授权已保存。后续项目会自动继承这次设置。", severity: "success" }));
+        } else {
+          print(renderer.render({ type: "risk", message: "已暂时跳过模型授权。现在仍可创建项目、记录需求和走本地流程。", severity: "warning" }));
+        }
+
+        const projectName = options.project ?? (input.isTTY ? (await rl.question("要不要顺手创建第一个项目？输入项目名，直接回车跳过：")).trim() : "");
+        if (projectName) {
+          const target = resolve(cwd, projectName);
+          const audit = await AuditSession.create({ cwd: target, task: `首次设置创建项目 ${projectName}` });
+          await mkdir(target, { recursive: true });
+          await createTemplateProject(target, projectName, audit);
+          await new GitTool().init({ cwd: target, audit, confirmed: true });
+          healthCwd = target;
+          print(renderer.render({ type: "done", message: "第一个项目已创建。进入这个项目后，直接用中文描述想要的结果。", severity: "success" }));
+        }
+
+        const report = healthSummary(await checkHealth(healthCwd));
+        print(renderHealthReport(report));
+      } finally {
+        rl.close();
+      }
     });
   });
 
@@ -517,6 +571,117 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
   };
 }
 
+async function resolveSetupProvider(
+  requested: string | undefined,
+  rl: ReturnType<typeof createInterface>
+): Promise<SupportedProviderId | undefined> {
+  if (requested) {
+    const normalized = normalizeProviderId(requested);
+    if (!normalized) {
+      throw new Error("暂不支持这个模型服务。可以选择 OpenAI、Anthropic、Google、Qwen、DeepSeek 或 Kimi。");
+    }
+    return normalized;
+  }
+
+  if (!input.isTTY) {
+    return undefined;
+  }
+
+  print("请选择你已经有授权的模型服务：");
+  for (const [index, provider] of providerEntries().entries()) {
+    print(`${index + 1}. ${provider[1].label}`);
+  }
+  print("0. 稍后再说");
+
+  const answer = (await rl.question("输入序号或名称：")).trim();
+  if (!answer || answer === "0") {
+    return undefined;
+  }
+
+  const byNumber = Number(answer);
+  if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= providerEntries().length) {
+    return providerEntries()[byNumber - 1][0];
+  }
+
+  const normalized = normalizeProviderId(answer);
+  if (!normalized) {
+    throw new Error("没有识别这个模型服务。请重新运行首次设置。");
+  }
+  return normalized;
+}
+
+async function resolveSetupApiKey(
+  provider: SupportedProviderId,
+  requested: string | undefined,
+  rl: ReturnType<typeof createInterface>
+): Promise<string | undefined> {
+  if (requested?.trim()) {
+    return requested.trim();
+  }
+  if (!input.isTTY) {
+    return undefined;
+  }
+
+  const label = PROVIDER_PRESETS[provider].label;
+  const value = (await rl.question(`请粘贴 ${label} 授权码，直接回车跳过：`)).trim();
+  return value || undefined;
+}
+
+async function saveModelSetup(provider: SupportedProviderId, apiKey: string): Promise<void> {
+  const current = await readGlobalConfig();
+  const preset = PROVIDER_PRESETS[provider];
+  const next: CcliConfig = {
+    language: "zh-CN",
+    mode: "plain-user",
+    automation: "high-with-guardrails",
+    ...current,
+    providers: {
+      ...current.providers,
+      [provider]: {
+        ...current.providers?.[provider],
+        apiKey
+      }
+    },
+    roles: {
+      ...current.roles,
+      ...Object.fromEntries(SETUP_ROLES.map((role) => [role, { provider, model: preset.model }]))
+    }
+  };
+
+  const path = globalConfigPath();
+  await mkdir(resolve(path, ".."), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await chmod(path, 0o600).catch(() => undefined);
+}
+
+async function readGlobalConfig(): Promise<CcliConfig> {
+  try {
+    return JSON.parse(await readFile(globalConfigPath(), "utf8")) as CcliConfig;
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+}
+
+function globalConfigPath(): string {
+  return resolve(homedir(), ".ccli", "config.json");
+}
+
+function normalizeProviderId(value: string): SupportedProviderId | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "claude") return "anthropic";
+  if (normalized === "gemini") return "google";
+  if (normalized === "tongyi" || normalized === "dashscope" || normalized === "aliyun") return "qwen";
+  if (normalized === "moonshot") return "kimi";
+  return providerEntries().find(([id]) => id === normalized)?.[0];
+}
+
+function providerEntries(): Array<[SupportedProviderId, (typeof PROVIDER_PRESETS)[SupportedProviderId]]> {
+  return Object.entries(PROVIDER_PRESETS) as Array<[SupportedProviderId, (typeof PROVIDER_PRESETS)[SupportedProviderId]]>;
+}
+
 async function runRequirement(options: {
   cwd: string;
   expert: boolean;
@@ -545,17 +710,7 @@ async function checkHealth(cwd: string) {
   const pnpmReady = await commandOk("pnpm", ["--version"]);
   const ghReady = await commandOk("gh", ["auth", "status", "--hostname", "github.com"], 20_000);
   const inProject = existsSync(resolve(cwd, "package.json")) || existsSync(resolve(cwd, ".git"));
-  const hasRoleConfig = Boolean(config.roles && Object.keys(config.roles).length > 0);
-  const hasModelKey =
-    Boolean(process.env.OPENAI_API_KEY) ||
-    Boolean(process.env.ANTHROPIC_API_KEY) ||
-    Boolean(process.env.GOOGLE_API_KEY) ||
-    Boolean(process.env.GEMINI_API_KEY) ||
-    Boolean(process.env.QWEN_API_KEY) ||
-    Boolean(process.env.DASHSCOPE_API_KEY) ||
-    Boolean(process.env.DEEPSEEK_API_KEY) ||
-    Boolean(process.env.KIMI_API_KEY) ||
-    Boolean(process.env.MOONSHOT_API_KEY);
+  const modelReadiness = assessModelReadiness(config);
 
   return [
     {
@@ -590,13 +745,37 @@ async function checkHealth(cwd: string) {
     },
     {
       name: "智能开发能力",
-      status: hasModelKey ? ("ready" as const) : hasRoleConfig ? ("optional" as const) : ("action-needed" as const),
-      userMessage: hasModelKey
+      status: modelReadiness.ready ? ("ready" as const) : modelReadiness.partial ? ("optional" as const) : ("action-needed" as const),
+      userMessage: modelReadiness.ready
         ? "已经检测到模型授权，可以进入更完整的自动开发。"
-        : "还没有检测到模型授权；现在仍可创建项目、记录需求和走本地流程。",
-      fix: "设置 OpenAI、Anthropic、Google、Qwen、DeepSeek 或 Kimi 的环境变量。"
+        : modelReadiness.partial
+          ? "已经有部分模型设置；完成首次设置后，规划、开发和审查会更稳定。"
+          : "还没有检测到模型授权；现在仍可创建项目、记录需求和走本地流程。",
+      fix: "运行 ccli setup。"
     }
   ];
+}
+
+function assessModelReadiness(config: CcliConfig): { ready: boolean; partial: boolean } {
+  const requiredRoles = ["planner", "builder", "reviewer"] as const;
+  const ready = requiredRoles.every((role) => {
+    const selection = config.roles?.[role];
+    return Boolean(selection && providerHasKey(selection.provider, config));
+  });
+  const partial =
+    ready ||
+    Object.keys(config.roles ?? {}).length > 0 ||
+    Object.keys(config.providers ?? {}).some((provider) => providerHasKey(provider, config)) ||
+    providerEntries().some(([provider]) => providerHasKey(provider, config));
+  return { ready, partial };
+}
+
+function providerHasKey(provider: string, config: CcliConfig): boolean {
+  if (config.providers?.[provider]?.apiKey) {
+    return true;
+  }
+  const preset = PROVIDER_PRESETS[provider as SupportedProviderId];
+  return Boolean(preset?.env.some((name) => process.env[name]));
 }
 
 async function commandOk(command: string, args: string[], timeoutMs = 10_000): Promise<boolean> {

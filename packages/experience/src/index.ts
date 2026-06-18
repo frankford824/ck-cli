@@ -37,6 +37,7 @@ export function welcomeCard(): WelcomeCard {
     title: "ccli 中文开发管家",
     summary: "你只需要说清楚想要的结果，ccli 负责规划、开发、验证、审查和交付。",
     nextActions: [
+      "首次设置：ccli setup",
       "创建新产品：ccli new 我的应用",
       "改当前项目：ccli \"给订单页面增加导出按钮\"",
       "进入对话：ccli chat",

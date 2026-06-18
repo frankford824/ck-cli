@@ -223,13 +223,7 @@ h1 {
       {
         language: "zh-CN",
         mode: "plain-user",
-        automation: "high-with-guardrails",
-        roles: {
-          planner: { provider: "openai", model: "gpt-5" },
-          builder: { provider: "anthropic", model: "claude-sonnet-4-5" },
-          reviewer: { provider: "google", model: "gemini-3-pro" },
-          presenter: { provider: "kimi", model: "kimi-latest" }
-        }
+        automation: "high-with-guardrails"
       },
       null,
       2
