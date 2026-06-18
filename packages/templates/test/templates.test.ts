@@ -20,6 +20,8 @@ describe("webTemplateFiles", () => {
     expect(files[".ccli/harness/hooks.json"]).toContain("dangerous-action-gate");
     expect(files[".ccli/harness/agents/reviewer.md"]).toContain("独立审查代理");
     expect(files[".ccli/harness/agents/eval-runner.md"]).toContain("验证执行代理");
+    expect(files[".ccli/harness/ROADMAP.md"]).toContain("驾驭路线图");
+    expect(files[".ccli/harness/ROADMAP.md"]).toContain("把踩坑变成下一轮输入");
     expect(files[".ccli/harness/feature-list.json"]).toContain("first-visible-outcome");
     expect(files[".ccli/harness/init-check.json"]).toContain("每次长任务开始前");
     expect(files[".ccli/harness/agent-memory/LESSONS.md"]).toContain("失败经验库");
@@ -58,6 +60,7 @@ describe("webTemplateFiles", () => {
       expect(result.written).toContain(".ccli/harness/init-check.json");
       expect(result.written).toContain(".ccli/harness/settings.json");
       expect(result.written).toContain(".ccli/harness/hooks.json");
+      expect(result.written).toContain(".ccli/harness/ROADMAP.md");
       expect(result.written).toContain(".ccli/harness/agents/reviewer.md");
       expect(result.written).toContain(".ccli/skills/frontend-design.md");
       expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("保留我的项目规则\n");
