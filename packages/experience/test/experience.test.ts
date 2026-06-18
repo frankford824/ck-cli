@@ -140,6 +140,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("action-button");
     expect(hardwareManifest().output).toContain("boss-home");
     expect(hardwareManifest().output).toContain("acceptance-guide");
+    expect(hardwareManifest().output).toContain("delivery-confirmation");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");
