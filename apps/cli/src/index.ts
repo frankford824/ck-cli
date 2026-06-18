@@ -977,6 +977,32 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isProductCreationRequest(utterance)) {
+    const name = projectNameFromIdea(utterance);
+    const command = `ccli go ${JSON.stringify(utterance)}`;
+    const actions = [
+      commandAction("confirm-create-product", "确认生成首版产品", command, `将创建「${name}」并开始生成首版。`, true),
+      utteranceAction("ideas", "换一个模板", "给我几个产品模板"),
+      utteranceAction("next", "下一步怎么办", "下一步怎么办")
+    ];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: `我理解你想做${name}。如果确认，可以开始生成首版产品。`,
+        screen: `${name}\n目标：${utterance}\n确认后会创建项目、生成首版并准备预览。`,
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      {
+        kind: "create-product",
+        idea: utterance,
+        name,
+        command
+      }
+    );
+  }
+
   const actions = [
     utteranceAction("next", "下一步怎么办", "下一步怎么办"),
     utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),

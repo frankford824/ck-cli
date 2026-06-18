@@ -397,6 +397,7 @@ ccli harness --expert
 ```bash
 ccli hardware "下一步怎么办" --json
 ccli hardware "给我几个产品模板" --json
+ccli hardware "做一个库存看板，能看低库存" --json
 ccli hardware "查看我的产品" --json
 ```
 
