@@ -3911,7 +3911,7 @@ function isChineseConfirmationAnswer(value: string): boolean {
 
 function isHelpRequest(request: string): boolean {
   const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
-  return /^(?:帮助|help|使用说明|新手帮助|我不会用|教我用|怎么操作|能做什么|可以做什么)$/.test(normalized);
+  return /^(?:帮助|help|使用说明|新手帮助|怎么操作|能做什么|可以做什么)$/.test(normalized);
 }
 
 function isSetupStartRequest(request: string): boolean {
@@ -4167,7 +4167,7 @@ function revisionFeedbackFromNaturalRequest(request: string): string {
 }
 
 function isHomeRequest(request: string): boolean {
-  return /(?:开箱|首页|主页|驾驶舱|工作台|新手|第一次用|刚开始|上手|怎么开始|如何开始|从哪开始|怎么用|如何用|入口)/.test(request) ||
+  return /(?:开箱|首页|主页|驾驶舱|工作台|新手|第一次用|刚开始|上手|不会用|教我用|怎么开始|如何开始|从哪开始|怎么用|如何用|入口)/.test(request) ||
     /(?:我要|我想|帮我).*(?:开始|上手|开工)/.test(request);
 }
 
