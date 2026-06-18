@@ -1830,7 +1830,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     const canOpen = readiness.canPreview && readiness.hasDependencies;
     const actions = readiness.canPreview
       ? [
-          commandAction("preview-current", "打开当前产品页面", readiness.hasDependencies ? "ccli preview" : "ccli preview --install", readiness.message),
+          commandAction("preview-current", "打开当前产品页面", readiness.hasDependencies ? "ccli preview" : "ccli preview --install", readiness.message, true),
           utteranceAction("next", "下一步怎么办", "下一步怎么办")
         ]
       : [
@@ -1855,7 +1855,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     const latest = projects[0];
     const actions = latest
       ? [
-          commandAction("open-latest", "打开最近产品", "ccli open", latest.name),
+          commandAction("open-latest", "打开最近产品", "ccli open", latest.name, true),
           utteranceAction("project-list", "查看我的产品", "查看我的产品"),
           utteranceAction("next", "下一步怎么办", "下一步怎么办")
         ]
@@ -1864,8 +1864,8 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       createExperienceEvent({
         surface: "hardware",
         tone: latest ? "asking" : "warning",
-        say: latest ? `最近的产品是${latest.name}。如果确认，可以在终端打开它。` : "还没有可以打开的产品。",
-        screen: latest ? `${latest.name}\n可以执行：ccli open` : "还没有产品，可以先说给我几个产品模板。",
+        say: latest ? `最近的产品是${latest.name}。如果确认，可以打开它。` : "还没有可以打开的产品。",
+        screen: latest ? `${latest.name}\n确认后会打开最近产品。` : "还没有产品，可以先说给我几个产品模板。",
         choices: choicesFromActions(actions),
         actions
       }),
