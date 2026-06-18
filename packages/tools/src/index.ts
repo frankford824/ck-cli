@@ -203,10 +203,21 @@ export class GitTool {
       await context.audit?.record("tool.git.push.skip", "远程分支已有最新成果", { branch });
       return;
     }
-    assertCommandOk(
-      await this.shell.run(`git push -u origin ${quote(branch)}`, { ...context, kind: "git-push" }),
-      "发送成果失败"
-    );
+    const primary = await this.shell.run(`git push -u origin ${quote(branch)}`, {
+      ...context,
+      kind: "git-push",
+      timeoutMs: 45_000
+    });
+    if (primary.exitCode === 0) {
+      return;
+    }
+
+    const fallback = await this.pushWithGithubCliToken(branch, context);
+    if (fallback?.exitCode === 0) {
+      return;
+    }
+
+    assertCommandOk(fallback ?? primary, "发送成果失败");
   }
 
   async defaultBaseBranch(cwd: string): Promise<string> {
@@ -242,6 +253,36 @@ export class GitTool {
       runShell(`git rev-parse --verify ${quote(`origin/${branch}`)}`, cwd, 30_000).catch(() => undefined)
     ]);
     return Boolean(head?.stdout.trim() && head?.stdout.trim() === remote?.stdout.trim());
+  }
+
+  private async pushWithGithubCliToken(branch: string, context: ToolContext): Promise<CommandResult | undefined> {
+    if (process.platform === "win32") {
+      return undefined;
+    }
+
+    const remote = await getRemote(context.cwd);
+    const parsedRemote = remote ? parseGithubRemote(remote) : undefined;
+    if (!parsedRemote || !(await commandExists("gh", context.cwd))) {
+      return undefined;
+    }
+
+    await context.audit?.record("tool.git.push.fallback.start", "尝试使用本机 GitHub 授权发送成果", {
+      branch,
+      remote: parsedRemote
+    });
+    const httpsUrl = `https://github.com/${parsedRemote.owner}/${parsedRemote.repo}.git`;
+    const command = [
+      "TOKEN=$(gh auth token)",
+      "BASIC=$(printf 'x-access-token:%s' \"$TOKEN\" | base64 | tr -d '\\n')",
+      `git -c http.extraHeader="AUTHORIZATION: basic $BASIC" push ${quote(httpsUrl)} ${quote(branch)}`
+    ].join(" && ");
+    const result = await this.shell.run(command, { ...context, kind: "git-push", timeoutMs: 90_000 });
+    await context.audit?.record(
+      result.exitCode === 0 ? "tool.git.push.fallback.done" : "tool.git.push.fallback.error",
+      result.exitCode === 0 ? "已使用本机 GitHub 授权发送成果" : "使用本机 GitHub 授权发送成果失败",
+      { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
+    );
+    return result;
   }
 
   private async ensureLocalIdentity(cwd: string): Promise<void> {
