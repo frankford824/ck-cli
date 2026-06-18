@@ -9,7 +9,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import { hardwareManifest, healthSummary, renderHealthReport, renderWelcome } from "@ccli/experience";
-import { loadHarnessContext, readHarnessProgress, renderHarnessSummary } from "@ccli/harness";
+import { analyzeHarnessReadiness, loadHarnessContext, readHarnessProgress, renderHarnessReadiness, renderHarnessSummary } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
 import { ProductRenderer } from "@ccli/product-ui";
@@ -362,16 +362,23 @@ program
     await withCli(async ({ renderer, cwd, expert }) => {
       const context = await loadHarnessContext(cwd);
       const progress = await readHarnessProgress(cwd);
+      const readiness = analyzeHarnessReadiness(context, progress);
       print(renderer.render({ type: "info", message: "智能体驾驭系统已启用，会负责规则、护栏、验证反馈和进度记忆。" }));
       print(renderHarnessSummary(context));
+      print(renderHarnessReadiness(readiness));
       if (progress) {
         print(renderer.render({ type: "info", message: `最近进度：${progress.summary} 下一步：${progress.nextAction}` }));
       }
       if (expert) {
+        for (const item of readiness.items) {
+          print(`${item.ready ? "已具备" : "缺少"}：${item.name}`);
+          print(`  影响：${item.impact}`);
+          print(`  建议：${item.nextAction}`);
+        }
         for (const budget of context.toolBudget) {
-          print(`${budget.stage}: ${budget.userVisibleGoal}`);
-          print(`  allowed: ${budget.allowedTools.join(", ")}`);
-          print(`  denied: ${budget.deniedActions.join(", ")}`);
+          print(`阶段：${budget.userVisibleGoal}`);
+          print(`  可用：${budget.allowedTools.join("、")}`);
+          print(`  禁止：${budget.deniedActions.join("、")}`);
         }
       }
     });

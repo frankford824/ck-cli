@@ -3,11 +3,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
+  analyzeHarnessReadiness,
   defaultToolBudget,
   harnessPrompt,
   loadHarnessContext,
   progressSnapshot,
   readHarnessProgress,
+  renderHarnessReadiness,
   renderHarnessSummary,
   writeHarnessProgress
 } from "../src/index.js";
@@ -28,6 +30,7 @@ describe("harness", () => {
       expect(prompt).toContain("整理中文产品方案");
       expect(prompt).toContain("项目固定事实");
       expect(prompt).toContain("不展示代码、命令、路径、堆栈");
+      expect(prompt).toContain("生成和评估分离");
       expect(renderHarnessSummary(context)).toContain("驾驭系统已加载");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -62,5 +65,23 @@ describe("harness", () => {
     expect(budgets).toHaveLength(7);
     expect(budgets.every((budget) => budget.allowedTools.length <= 3)).toBe(true);
     expect(budgets.find((budget) => budget.stage === "ship")?.deniedActions).toContain("无确认发布");
+  });
+
+  it("reports harness readiness gaps in plain Chinese", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-readiness-"));
+    try {
+      await writeFile(join(root, "AGENTS.md"), "只面向普通用户输出中文结果。\n", "utf8");
+      const context = await loadHarnessContext(root);
+      const report = analyzeHarnessReadiness(context);
+      const rendered = renderHarnessReadiness(report);
+
+      expect(report.score).toBeLessThan(100);
+      expect(report.gaps).toContain("安全和产品规则");
+      expect(report.gaps).toContain("短期进度落盘");
+      expect(rendered).toContain("驾驭系统健康度");
+      expect(rendered).toContain("建议下一步");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
