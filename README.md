@@ -46,6 +46,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ccli
 ccli home
 ccli ready
+ccli resume
 ccli setup
 ccli go "做一个客户管理系统，能记录跟进和提醒" --no-preview
 ccli doctor
@@ -120,6 +121,7 @@ ccli new demo
 ccli do "添加一个登录页面"
 ccli preview --install
 ccli status
+ccli resume
 ccli review
 ccli pr --yes
 ccli ship --yes
@@ -237,6 +239,7 @@ ccli "把首页改得更像高端咨询公司"
 ccli "查看我的产品"
 ccli "打开我上次做的系统"
 ccli "检查我上次做的系统能不能打开"
+ccli "继续上次任务"
 ccli "打开客户管理"
 ```
 
@@ -464,6 +467,7 @@ ccli harness --expert
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
 - 开箱准备向导，可用 `ccli ready --json` 读取
+- 任务恢复向导，可用 `ccli resume --json` 读取
 - 老板验收清单，可用 `ccli accept --json` 读取
 - 产品场景库，可用 `ccli ideas --json` 读取
 - 下一步建议，可用 `ccli next --json` 读取
@@ -479,6 +483,7 @@ ccli harness --expert
 ```bash
 ccli hardware "下一步怎么办" --json
 ccli hardware "开箱准备" --json
+ccli hardware "继续上次任务" --json
 ccli hardware "取消" --json
 ccli hardware "帮助" --json
 ccli hardware "我第一次用怎么开始" --json

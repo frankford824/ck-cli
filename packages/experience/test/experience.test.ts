@@ -4,6 +4,7 @@ import {
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
+  createResumeGuide,
   createSetupGuide,
   hardwareExamples,
   hardwareManifest,
@@ -12,6 +13,7 @@ import {
   renderAcceptanceGuide,
   renderBossHome,
   renderNextActions,
+  renderResumeGuide,
   renderSetupGuide,
   renderStarterIdeas,
   renderWelcome,
@@ -80,6 +82,32 @@ describe("experience", () => {
     expect(text).toContain("先处理：接上智能开发能力");
     expect(text).toContain("直接说：开始首次设置");
     expect(text).not.toContain("diff");
+  });
+
+  it("renders a resume guide for interrupted work", () => {
+    const guide = createResumeGuide({
+      progress: {
+        task: "添加登录页面",
+        currentStage: "validate",
+        updatedAt: "2026-06-18T10:00:00.000Z",
+        summary: "正在验证是否正常。",
+        nextAction: "进入独立审查。",
+        validation: "passed"
+      },
+      state: {
+        status: "done",
+        summary: "本次成果已保存。"
+      },
+      canPreview: true
+    });
+    const text = renderResumeGuide(guide);
+
+    expect(guide.summary).toContain("可以先打开页面验收");
+    expect(guide.actions.some((action) => action.id === "preview-current")).toBe(true);
+    expect(text).toContain("继续上次任务");
+    expect(text).toContain("添加登录页面");
+    expect(text).toContain("直接说：打开当前产品页面");
+    expect(text).not.toContain("stack");
   });
 
   it("renders next actions for guided usage", () => {
@@ -164,6 +192,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("action-button");
     expect(hardwareManifest().output).toContain("boss-home");
     expect(hardwareManifest().output).toContain("setup-guide");
+    expect(hardwareManifest().output).toContain("resume-guide");
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
     expect(hardwareManifest().output).toContain("acceptance-guide");
@@ -181,6 +210,7 @@ describe("experience", () => {
     expect(schema.protocol).toBe("ccli-experience-protocol");
     expect(schema.kinds).toContain("boss-home");
     expect(schema.kinds).toContain("setup-guide");
+    expect(schema.kinds).toContain("resume-guide");
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
     expect(schema.kinds).toContain("revision-request");
@@ -188,6 +218,7 @@ describe("experience", () => {
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);
     expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });

@@ -13,6 +13,7 @@ import {
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
+  createResumeGuide,
   createSetupGuide,
   hardwareExamples,
   hardwareManifest,
@@ -22,6 +23,7 @@ import {
   renderBossHome,
   renderHealthReport,
   renderNextActions,
+  renderResumeGuide,
   renderSetupGuide,
   renderStarterIdeas,
   renderWelcome,
@@ -31,6 +33,7 @@ import {
   type HealthReport,
   type NextAction,
   type NextActionPlan,
+  type ResumeGuide,
   type SetupGuide,
   type StarterIdea
 } from "@ccli/experience";
@@ -586,6 +589,22 @@ program
   });
 
 program
+  .command("resume")
+  .alias("continue")
+  .description("继续上次任务现场")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const guide = await buildResumeGuide(cwd);
+      if (options.json) {
+        print(JSON.stringify(guide, null, 2));
+        return;
+      }
+      print(renderResumeGuide(guide));
+    });
+  });
+
+program
   .command("status")
   .description("查看当前任务进度")
   .action(async () => {
@@ -1021,6 +1040,22 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isResumeRequest(utterance)) {
+    const guide = await buildResumeGuide(inputValue.cwd);
+    const actions = nextPlanActions({ summary: guide.summary, actions: guide.actions });
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: guide.summary,
+        screen: renderResumeGuide(guide),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "resume-guide", guide }
+    );
+  }
+
   if (isSatisfiedDeliveryRequest(utterance)) {
     const actions = [
       commandAction("confirm-delivery", "确认交付并合并", "ccli finish --yes", "会发送成果、进行独立审查，并在审查通过后合并。", true),
@@ -1317,6 +1352,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isResumeRequest(request)) {
+    print(renderResumeGuide(await buildResumeGuide(inputValue.cwd)));
+    return true;
+  }
+
   if (isProjectListRequest(request)) {
     await renderKnownProjects({ renderer: inputValue.renderer, expert: inputValue.expert, json: false });
     return true;
@@ -1476,6 +1516,19 @@ async function buildBossHome(cwd: string) {
 
 async function buildSetupGuide(cwd: string) {
   return createSetupGuide(healthSummary(await checkHealth(cwd)));
+}
+
+async function buildResumeGuide(cwd: string): Promise<ResumeGuide> {
+  const [progress, state, readiness] = await Promise.all([
+    readHarnessProgress(cwd).catch(() => undefined),
+    readState(cwd).catch(() => undefined),
+    previewReadiness(cwd).catch(() => undefined)
+  ]);
+  return createResumeGuide({
+    progress,
+    state,
+    canPreview: Boolean(readiness?.canPreview)
+  });
 }
 
 async function runSetupWizard(inputValue: {
@@ -2067,6 +2120,14 @@ function isSetupGuideRequest(request: string): boolean {
   return (
     /(?:开箱准备|准备向导|设置向导|准备好了吗|能开始了吗|还差什么|怎么设置|怎么配置|配置模型|模型授权|接入模型|接上模型)/.test(normalized) ||
     /^(?:ready|onboard)$/.test(normalized)
+  );
+}
+
+function isResumeRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:继续上次任务|继续刚才任务|恢复上次任务|恢复刚才任务|接着上次|接着刚才|继续上次|继续刚才|恢复现场|接回现场|上次做到哪|刚才做到哪|上次进度|刚才进度)/.test(normalized) ||
+    /^(?:resume|continue)$/.test(normalized)
   );
 }
 

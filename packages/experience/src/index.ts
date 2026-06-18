@@ -129,6 +129,31 @@ export interface SetupGuide {
   ask: string;
 }
 
+export interface ResumeProgressSnapshot {
+  task?: string;
+  currentStage?: string;
+  updatedAt?: string;
+  summary?: string;
+  nextAction?: string;
+  validation?: "passed" | "failed" | "skipped";
+}
+
+export interface ResumeStateSnapshot {
+  currentTask?: string;
+  status?: "idle" | "running" | "done" | "failed";
+  summary?: string;
+}
+
+export interface ResumeGuide {
+  title: string;
+  summary: string;
+  focus: string;
+  task?: string;
+  lastUpdated?: string;
+  actions: NextAction[];
+  ask: string;
+}
+
 export function welcomeCard(): WelcomeCard {
   return {
     title: "ccli 中文开发管家",
@@ -136,6 +161,7 @@ export function welcomeCard(): WelcomeCard {
     nextActions: [
       "开箱首页：ccli home",
       "开箱准备：ccli ready",
+      "继续上次任务：ccli resume",
       "首次设置：ccli setup",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
@@ -515,6 +541,113 @@ export function renderSetupGuide(guide: SetupGuide): string {
   return lines.join("\n");
 }
 
+export function createResumeGuide(input: {
+  progress?: ResumeProgressSnapshot;
+  state?: ResumeStateSnapshot;
+  canPreview?: boolean;
+}): ResumeGuide {
+  const task = cleanText(input.progress?.task ?? input.state?.currentTask);
+  const lastUpdated = cleanText(input.progress?.updatedAt);
+  const status = input.state?.status;
+  const hasRecord = Boolean(input.progress || input.state);
+  const progressSummary = cleanText(input.progress?.summary);
+  const stateSummary = cleanText(input.state?.summary);
+  const summary = hasRecord
+    ? status === "failed" || input.progress?.validation === "failed"
+      ? "上次任务没有顺利完成，建议先看清影响，再继续处理。"
+      : status === "done" || input.progress?.validation === "passed"
+        ? "上次任务已有结果，可以先打开页面验收，再决定是否继续修改。"
+        : "已找到上次任务现场，可以从这里接着判断下一步。"
+    : "还没有找到可恢复的任务记录，可以先从开箱首页或模板开始。";
+  const focus = progressSummary ?? stateSummary ?? "先看当前项目建议，再决定要继续哪个方向。";
+  const actions: NextAction[] = hasRecord
+    ? [
+        {
+          id: "status",
+          title: "查看上次进度",
+          reason: "先看中文进度，避免重复解释上次做到哪里。",
+          say: "查看当前任务进度",
+          command: "ccli status"
+        },
+        ...(input.canPreview
+          ? [
+              {
+                id: "preview-current",
+                title: "打开当前产品",
+                reason: "如果上次已经生成页面，先看效果最容易决定下一步。",
+                say: "打开当前产品页面",
+                command: "ccli preview --install"
+              }
+            ]
+          : []),
+        {
+          id: "accept-current",
+          title: "按清单验收",
+          reason: "用老板能看懂的清单判断满意还是需要改。",
+          say: "怎么验收当前产品",
+          command: "ccli accept"
+        },
+        {
+          id: "next",
+          title: "让系统给下一步",
+          reason: "如果不确定要继续做什么，先让 ccli 根据当前状态推荐。",
+          say: "下一步怎么办",
+          command: "ccli next"
+        }
+      ]
+    : [
+        {
+          id: "home",
+          title: "回到开箱首页",
+          reason: "先看当前状态和最建议动作。",
+          say: "打开开箱首页",
+          command: "ccli home"
+        },
+        {
+          id: "ideas",
+          title: "从模板开始",
+          reason: "还没有任务记录时，模板最快能看到首版产品。",
+          say: "给我几个产品模板",
+          command: "ccli ideas"
+        },
+        {
+          id: "ready",
+          title: "检查开箱准备",
+          reason: "确认模型、项目和预览能力是否准备好。",
+          say: "开箱准备",
+          command: "ccli ready"
+        }
+      ];
+
+  return {
+    title: "继续上次任务",
+    summary,
+    focus,
+    task,
+    lastUpdated,
+    actions: actions.slice(0, 4),
+    ask: "不知道怎么接，就直接说：下一步怎么办。"
+  };
+}
+
+export function renderResumeGuide(guide: ResumeGuide): string {
+  const lines = [guide.title, "", guide.summary];
+  if (guide.task) {
+    lines.push(`上次任务：${guide.task}`);
+  }
+  if (guide.lastUpdated) {
+    lines.push(`记录时间：${formatDisplayDate(guide.lastUpdated)}`);
+  }
+  lines.push("", `当前重点：${guide.focus}`, "", "可以这样继续：");
+  for (const [index, action] of guide.actions.entries()) {
+    lines.push(`${index + 1}. ${action.title}`);
+    lines.push(`原因：${action.reason}`);
+    lines.push(`直接说：${action.say}`);
+  }
+  lines.push("", guide.ask);
+  return lines.join("\n");
+}
+
 export function createExperienceEvent(input: Omit<ExperienceEvent, "surface"> & { surface?: InteractionSurface }): ExperienceEvent {
   return {
     surface: input.surface ?? "terminal",
@@ -552,6 +685,7 @@ export function hardwareManifest() {
       "action-button",
       "boss-home",
       "setup-guide",
+      "resume-guide",
       "control-help",
       "control-cancelled",
       "acceptance-guide",
@@ -561,7 +695,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -597,6 +731,7 @@ export function hardwareSchema() {
       "welcome",
       "boss-home",
       "setup-guide",
+      "resume-guide",
       "control-help",
       "control-cancelled",
       "next-action",
@@ -682,6 +817,32 @@ export function hardwareExamples() {
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
+        say: "已找到上次任务现场，可以从这里接着判断下一步。",
+        screen: "继续上次任务\n\n上次任务：添加登录页面\n当前重点：中文产品方案已生成。\n\n可以这样继续：\n1. 查看上次进度\n直接说：查看当前任务进度\n2. 打开当前产品\n直接说：打开当前产品页面",
+        choices: ["查看上次进度", "打开当前产品", "下一步怎么办"],
+        actions: [
+          {
+            id: "status",
+            label: "查看上次进度",
+            kind: "utterance",
+            say: "查看当前任务进度",
+            requiresConfirmation: false
+          },
+          {
+            id: "preview-current",
+            label: "打开当前产品",
+            kind: "utterance",
+            say: "打开当前产品页面",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "resume-guide" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
         say: "我理解你已经满意，准备交付。这个动作需要确认。",
         screen: "准备交付\n确认后会发送成果、独立审查，并在审查通过后合并。",
         choices: ["确认交付并合并", "再看验收清单", "我还想改"],
@@ -751,6 +912,16 @@ function keywordMatch(goal: string, idea: StarterIdea): boolean {
 
 function healthItem(report: HealthReport, name: string): HealthCheckItem | undefined {
   return report.items.find((item) => item.name === name);
+}
+
+function formatDisplayDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const datePart = date.toISOString().slice(0, 10);
+  const timePart = date.toTimeString().slice(0, 5);
+  return `${datePart} ${timePart}`;
 }
 
 function cleanText(value?: string): string | undefined {
