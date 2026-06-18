@@ -13,7 +13,9 @@ import {
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
+  hardwareExamples,
   hardwareManifest,
+  hardwareSchema,
   healthSummary,
   renderAcceptanceGuide,
   renderBossHome,
@@ -466,8 +468,18 @@ program
   .argument("[utterance...]", "语音转写后的中文请求")
   .description("查看未来智能硬件和语音交互协议")
   .option("--json", "输出给硬件使用的结构化响应")
-  .action(async (utteranceParts: string[] | undefined, options: { json?: boolean }) => {
+  .option("--schema", "输出硬件协议字段说明")
+  .option("--examples", "输出硬件协议示例")
+  .action(async (utteranceParts: string[] | undefined, options: { json?: boolean; schema?: boolean; examples?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
+      if (options.schema) {
+        print(JSON.stringify(hardwareSchema(), null, 2));
+        return;
+      }
+      if (options.examples) {
+        print(JSON.stringify(hardwareExamples(), null, 2));
+        return;
+      }
       const utterance = utteranceParts?.join(" ").trim();
       if (utterance) {
         const response = await hardwareResponseForUtterance({ cwd, utterance });
