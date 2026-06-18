@@ -447,8 +447,22 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice", "action-button", "boss-home", "acceptance-guide", "revision-request", "delivery-confirmation", "project-catalog", "idea-catalog", "next-action"],
-    events: ["welcome", "home", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    output: [
+      "speech",
+      "screen",
+      "choice",
+      "action-button",
+      "boss-home",
+      "control-help",
+      "control-cancelled",
+      "acceptance-guide",
+      "revision-request",
+      "delivery-confirmation",
+      "project-catalog",
+      "idea-catalog",
+      "next-action"
+    ],
+    events: ["welcome", "home", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -483,6 +497,8 @@ export function hardwareSchema() {
     kinds: [
       "welcome",
       "boss-home",
+      "control-help",
+      "control-cancelled",
       "next-action",
       "idea-catalog",
       "project-catalog",
@@ -561,6 +577,32 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "delivery-confirmation" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "calm",
+        say: "已停止这次口令。你可以重新说下一步怎么办，或者回到开箱首页。",
+        screen: "已停止这次口令。\n没有开始新的开发任务。\n\n你可以说：\n下一步怎么办\n打开开箱首页\n给我几个产品模板",
+        choices: ["回到开箱首页", "下一步怎么办", "给我几个产品模板"],
+        actions: [
+          {
+            id: "home",
+            label: "回到开箱首页",
+            kind: "utterance",
+            say: "打开开箱首页",
+            requiresConfirmation: false
+          },
+          {
+            id: "next",
+            label: "下一步怎么办",
+            kind: "utterance",
+            say: "下一步怎么办",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "control-cancelled" }
     )
   ];
 }

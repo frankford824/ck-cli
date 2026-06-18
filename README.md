@@ -131,6 +131,7 @@ ccli harness --init
 ccli harness --method
 ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
+ccli "取消"
 ccli memory search "登录页面" --expert
 ccli hardware --expert
 ccli hardware "下一步怎么办" --json
@@ -465,6 +466,7 @@ ccli harness --expert
 - 协议字段说明，可用 `ccli hardware --schema` 读取
 - 协议示例，可用 `ccli hardware --examples` 读取
 - 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
+- 控制口令，可用 `ccli hardware "取消" --json` 或 `ccli hardware "帮助" --json` 读取
 
 协议不暴露代码、命令、路径和堆栈，保证用户体验保持普通中文产品语义。
 
@@ -472,6 +474,8 @@ ccli harness --expert
 
 ```bash
 ccli hardware "下一步怎么办" --json
+ccli hardware "取消" --json
+ccli hardware "帮助" --json
 ccli hardware "我第一次用怎么开始" --json
 ccli hardware "怎么验收当前产品" --json
 ccli hardware "我想改一下：首页太乱，重点不够明显" --json
