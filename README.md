@@ -39,6 +39,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ccli
 ccli setup
 ccli create "做一个客户管理系统，能记录跟进和提醒"
+ccli preview --install
 ccli doctor
 ```
 
@@ -92,11 +93,13 @@ pnpm dev --help
 ccli
 ccli setup
 ccli create "做一个客户管理系统"
+ccli preview --install
 ccli doctor
 ccli chat
 ccli "给订单页面增加导出按钮"
 ccli new demo
 ccli do "添加一个登录页面"
+ccli preview --install
 ccli status
 ccli review
 ccli pr --yes
@@ -189,6 +192,28 @@ ccli create "做一个门店预约系统" --name 门店预约
 ccli create "做一个门店预约系统" --install
 ```
 
+如果希望创建后直接看到页面：
+
+```bash
+ccli create "做一个门店预约系统" --preview --yes
+```
+
+## 本地预览
+
+`ccli preview` 会用中文帮普通用户判断当前项目能不能打开页面。缺少运行内容时，它不会直接报一堆技术错误，而是提示下一步：
+
+```bash
+ccli preview --install
+```
+
+如果只想检查是否已经准备好：
+
+```bash
+ccli preview --check
+```
+
+启动成功后，界面只显示本地预览地址和结束方式；底层启动细节仍保留在专家模式和审计记录里。
+
 ## 驾驭系统
 
 ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开发和审查；驾驭系统负责把模型限制在稳定流程里：
@@ -197,6 +222,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - 每个阶段只暴露少量工具语义，减少模型选择噪音。
 - 自动验证失败时，把失败摘要交回开发代理，最多先自动修复一次。
 - 每个阶段写入 `.ccli/progress.json`，长任务或上下文丢失后可以接管。
+- 本地预览作为用户可理解的反馈闭环，让“看见页面”成为验证的一部分。
 - 所有原始工具结果和模型细节仍进入 `.ccli/audit/*.jsonl`。
 
 查看当前项目的驾驭系统：
