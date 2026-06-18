@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createExperienceEvent, hardwareManifest, healthSummary, renderStarterIdeas, renderWelcome, speechText, starterIdeas } from "../src/index.js";
+import { createExperienceEvent, hardwareManifest, healthSummary, renderNextActions, renderStarterIdeas, renderWelcome, speechText, starterIdeas } from "../src/index.js";
 
 describe("experience", () => {
   it("renders boss-friendly welcome copy", () => {
@@ -7,6 +7,7 @@ describe("experience", () => {
 
     expect(text).toContain("中文开发管家");
     expect(text).toContain("ccli setup");
+    expect(text).toContain("ccli next");
     expect(text).toContain("ccli go");
     expect(text).toContain("ccli ideas");
     expect(text).toContain("ccli ideas 3");
@@ -16,6 +17,7 @@ describe("experience", () => {
     expect(text).toContain("ccli create");
     expect(text).toContain("ccli preview");
     expect(text).toContain("ccli chat");
+    expect(text).toContain("下一步怎么办");
     expect(text).toContain("给我几个产品模板");
     expect(text).toContain("做第 3 个模板");
     expect(text).not.toContain("diff");
@@ -41,6 +43,25 @@ describe("experience", () => {
     expect(report.summary).toContain("1 项");
   });
 
+  it("renders next actions for guided usage", () => {
+    const text = renderNextActions({
+      summary: "建议先打开最近产品。",
+      actions: [
+        {
+          id: "open",
+          title: "打开最近产品",
+          reason: "你已经创建过产品，可以先看看效果。",
+          say: "打开我上次做的系统",
+          command: "ccli open"
+        }
+      ]
+    });
+
+    expect(text).toContain("建议先打开最近产品");
+    expect(text).toContain("直接说");
+    expect(text).toContain("也可以执行");
+  });
+
   it("keeps a future hardware protocol explicit", () => {
     const event = createExperienceEvent({ tone: "success", say: "已完成", surface: "voice" });
 
@@ -48,5 +69,6 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("speech");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
+    expect(hardwareManifest().output).toContain("next-action");
   });
 });
