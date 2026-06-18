@@ -509,12 +509,18 @@ export async function runShell(command: string, cwd: string, timeoutMs: number):
       cwd,
       shell: true,
       windowsHide: true,
-      env: process.env
+      detached: process.platform !== "win32",
+      env: {
+        ...process.env,
+        GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? "ssh -o BatchMode=yes -o ConnectTimeout=20"
+      }
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      timedOut = true;
+      killShellTree(child.pid);
     }, timeoutMs);
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -525,13 +531,38 @@ export async function runShell(command: string, cwd: string, timeoutMs: number):
     });
     child.on("close", (exitCode) => {
       clearTimeout(timer);
-      resolvePromise({ command, exitCode: exitCode ?? 1, stdout, stderr });
+      resolvePromise({
+        command,
+        exitCode: exitCode ?? (timedOut ? 124 : 1),
+        stdout,
+        stderr: timedOut ? `${stderr}\n后台操作超时，已停止。`.trim() : stderr
+      });
     });
     child.on("error", (error) => {
       clearTimeout(timer);
       resolvePromise({ command, exitCode: 1, stdout, stderr: error.message });
     });
   });
+}
+
+function killShellTree(pid: number | undefined): void {
+  if (!pid) {
+    return;
+  }
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
+    return;
+  }
+
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // The process may have already exited.
+    }
+  }
 }
 
 function safeResolve(cwd: string, relativePath: string): string {
