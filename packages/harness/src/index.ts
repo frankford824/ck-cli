@@ -17,8 +17,11 @@ export interface HarnessContext {
   rules: HarnessDocument[];
   skills: HarnessDocument[];
   artifacts: HarnessDocument[];
+  agents: HarnessDocument[];
   memory?: HarnessDocument;
   memories: HarnessDocument[];
+  settings?: HarnessSettings;
+  hookPlan?: HarnessHookPlan;
   toolBudget: HarnessToolBudget[];
 }
 
@@ -27,6 +30,30 @@ export interface HarnessToolBudget {
   userVisibleGoal: string;
   allowedTools: string[];
   deniedActions: string[];
+}
+
+export interface HarnessSettings {
+  version?: number;
+  mode?: string;
+  principle?: string;
+  modelRoles?: Record<string, string>;
+  permissions?: {
+    autoApprove?: string[];
+    confirm?: string[];
+    deny?: string[];
+  };
+}
+
+export interface HarnessHook {
+  id: string;
+  when: "before-tool" | "after-edit" | "after-validation" | "session-end";
+  description: string;
+  blocks?: boolean;
+}
+
+export interface HarnessHookPlan {
+  version?: number;
+  hooks: HarnessHook[];
 }
 
 export interface HarnessProgress {
@@ -78,6 +105,9 @@ const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
 const ARTIFACT_FILES = [".ccli/harness/feature-list.json", ".ccli/harness/init-check.json"];
+const AGENT_FILES = [".ccli/harness/agents/reviewer.md", ".ccli/harness/agents/eval-runner.md"];
+const SETTINGS_FILE = ".ccli/harness/settings.json";
+const HOOKS_FILE = ".ccli/harness/hooks.json";
 const MEMORY_FILE = ".ccli/harness/agent-memory/STATE.md";
 const LESSONS_FILE = ".ccli/harness/agent-memory/LESSONS.md";
 const MEMORY_FILES = [MEMORY_FILE, LESSONS_FILE];
@@ -85,12 +115,15 @@ const PROGRESS_FILE = ".ccli/progress.json";
 const MAX_DOCUMENT_CHARS = 5000;
 
 export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
-  const [standingFacts, rules, skills, artifacts, memories] = await Promise.all([
+  const [standingFacts, rules, skills, artifacts, agents, memories, settings, hookPlan] = await Promise.all([
     readDocuments(cwd, STANDING_FACT_FILES),
     readDocuments(cwd, RULE_FILES),
     readDocuments(cwd, SKILL_FILES),
     readDocuments(cwd, ARTIFACT_FILES),
-    readDocuments(cwd, MEMORY_FILES)
+    readDocuments(cwd, AGENT_FILES),
+    readDocuments(cwd, MEMORY_FILES),
+    readJsonDocument<HarnessSettings>(cwd, SETTINGS_FILE),
+    readJsonDocument<HarnessHookPlan>(cwd, HOOKS_FILE)
   ]);
 
   return {
@@ -98,8 +131,11 @@ export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
     rules,
     skills,
     artifacts,
+    agents,
     memory: memories[0],
     memories,
+    settings,
+    hookPlan: normalizeHookPlan(hookPlan),
     toolBudget: defaultToolBudget()
   };
 }
@@ -126,6 +162,9 @@ export function harnessPrompt(context: HarnessContext, stage: HarnessStage): str
     renderDocuments("长期事实", context.standingFacts),
     renderDocuments("确定性规则", context.rules),
     renderDocuments("可复用技能", context.skills),
+    renderHarnessSettings(context.settings),
+    renderHarnessHooks(context.hookPlan),
+    renderDocuments("独立子代理", context.agents),
     renderDocuments("执行清单", context.artifacts),
     context.memories.length ? renderDocuments("项目记忆", context.memories) : context.memory ? renderDocuments("项目记忆", [context.memory]) : ""
   ];
@@ -180,12 +219,15 @@ export async function recordHarnessLesson(cwd: string, input: HarnessLessonInput
 export function renderHarnessMethod(): string {
   return [
     "驾驭方法：把智能体当成“模型 + 外部支架”。",
-    "实际使用时按四步走：",
-    "1. 先固定项目指南，让系统每次都知道边界和禁区。",
-    "2. 每个阶段只开放少量必要工具，先了解、再计划、再实现、再验证。",
-    "3. 验证失败先回到开发代理自动修复，不直接把技术错误丢给用户。",
-    "4. 每次踩坑都写成项目经验，下次任务开始前自动读取，避免重复犯错。",
-    "普通用户只需要说：以后不要再这样。ccli 会把这句话沉淀成下一轮可用的项目经验。"
+    "在 ccli 里，这套方法落成四层：",
+    "1. 上下文：项目指南、产品规则、设计契约和任务清单，让系统每次先知道边界。",
+    "2. 权限：便宜、可撤回的动作自动执行；昂贵、不可逆、发布、密钥和生产动作必须中文确认。",
+    "3. 反馈：开发后自动验证，失败摘要先回到开发代理修复，再交给独立审查代理复核。",
+    "4. 记忆：每个阶段写进度，踩坑写经验；下一轮先读取，不从零猜。",
+    "",
+    "14 步路线可以压缩为一个顺序：先让一次人工触发的任务稳定，再补项目指南、权限档案、审查子代理、技能、钩子和记忆，最后再考虑循环自动跑。",
+    "普通用户只需要说：补齐驾驭系统。ccli 会把这些支架放进项目里，并用中文告诉你还缺什么。",
+    "如果某次结果踩坑，只需要说：以后不要再这样。ccli 会把它沉淀成下一轮可用的项目经验。"
   ].join("\n");
 }
 
@@ -223,6 +265,22 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
       nextAction: "补齐安全规则和产品表达规则，尤其是删除、密钥、发布和生产操作。"
     },
     {
+      name: "权限档案",
+      ready: Boolean(
+        context.settings?.permissions?.autoApprove?.length &&
+          context.settings.permissions.confirm?.length &&
+          context.settings.permissions.deny?.length
+      ),
+      impact: "可自动执行和必须确认的动作被固定下来，减少每次临场判断。",
+      nextAction: "运行 ccli harness --init，生成权限档案，区分自动、确认和禁止动作。"
+    },
+    {
+      name: "确定性钩子计划",
+      ready: Boolean(context.hookPlan?.hooks.some((hook) => hook.blocks) && context.hookPlan.hooks.length >= 2),
+      impact: "危险动作、改动后验证和会话结束记忆会走确定规则，不依赖模型自觉。",
+      nextAction: "运行 ccli harness --init，生成危险动作拦截、质量反馈和记忆写入钩子计划。"
+    },
+    {
       name: "阶段工具预算",
       ready: context.toolBudget.length >= 7 && context.toolBudget.every((budget) => budget.allowedTools.length <= 3),
       impact: "每个阶段只给少量工具语义，降低模型选错工具的概率。",
@@ -236,9 +294,9 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
     },
     {
       name: "独立审查",
-      ready: context.toolBudget.some((budget) => budget.stage === "review"),
+      ready: context.toolBudget.some((budget) => budget.stage === "review") && context.agents.some((agent) => agent.path.endsWith("reviewer.md")),
       impact: "实现和评估分开，减少开发代理自我确认带来的盲区。",
-      nextAction: "保留独立审查阶段，审查结论要覆盖风险、验证和未覆盖项。"
+      nextAction: "保留独立审查阶段，并补一份独立审查代理说明。"
     },
     {
       name: "可复用技能",
@@ -316,6 +374,27 @@ export function renderHarnessReadiness(report: HarnessReadinessReport): string {
   return sections.filter(Boolean).join("\n");
 }
 
+export function renderHarnessProfile(context: HarnessContext): string {
+  const permissions = context.settings?.permissions;
+  const permissionText = permissions
+    ? [
+        permissions.autoApprove?.length ? `可自动执行 ${permissions.autoApprove.length} 类低风险动作` : "",
+        permissions.confirm?.length ? `${permissions.confirm.length} 类高影响动作需要中文确认` : "",
+        permissions.deny?.length ? `${permissions.deny.length} 类动作默认禁止` : ""
+      ]
+        .filter(Boolean)
+        .join("，")
+    : "还没有权限档案";
+  const hookText = context.hookPlan?.hooks.length
+    ? context.hookPlan.hooks.map((hook) => hook.description).join("；")
+    : "还没有确定性钩子计划";
+  const agentText = context.agents.length
+    ? `已准备 ${context.agents.length} 个独立子代理说明`
+    : "还没有独立子代理说明";
+
+  return [`驾驭配置：${permissionText}。`, `确定规则：${hookText}。`, `独立复核：${agentText}。`].join("\n");
+}
+
 export function defaultToolBudget(): HarnessToolBudget[] {
   return [
     {
@@ -368,8 +447,11 @@ export function renderHarnessSummary(context: HarnessContext): string {
   const rules = context.rules.length;
   const skills = context.skills.length;
   const artifacts = context.artifacts.length;
+  const agents = context.agents.length;
+  const settings = context.settings ? "已加载权限档案" : "暂无权限档案";
+  const hooks = context.hookPlan?.hooks.length ? `已加载 ${context.hookPlan.hooks.length} 个确定性钩子` : "暂无确定性钩子";
   const memory = context.memories.length ? `已接入 ${context.memories.length} 份项目记忆` : context.memory ? "已接入历史记忆" : "暂无历史记忆";
-  return `驾驭系统已加载：${facts} 份长期事实、${rules} 份确定性规则、${skills} 个复用技能、${artifacts} 份执行清单，${memory}。`;
+  return `驾驭系统已加载：${facts} 份长期事实、${rules} 份确定性规则、${skills} 个复用技能、${artifacts} 份执行清单、${agents} 个子代理说明，${settings}，${hooks}，${memory}。`;
 }
 
 async function readDocuments(cwd: string, relativePaths: string[]): Promise<HarnessDocument[]> {
@@ -393,12 +475,56 @@ async function readOptionalDocument(cwd: string, relativePath: string, fallbackT
   };
 }
 
+async function readJsonDocument<T>(cwd: string, relativePath: string): Promise<T | undefined> {
+  try {
+    return JSON.parse(await readFile(join(cwd, relativePath), "utf8")) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeHookPlan(plan?: HarnessHookPlan): HarnessHookPlan | undefined {
+  if (!plan?.hooks?.length) {
+    return undefined;
+  }
+  const hooks = plan.hooks.filter(
+    (hook): hook is HarnessHook =>
+      Boolean(hook?.id && hook.description && ["before-tool", "after-edit", "after-validation", "session-end"].includes(hook.when))
+  );
+  return hooks.length ? { version: plan.version, hooks } : undefined;
+}
+
 function renderDocuments(title: string, documents: HarnessDocument[]): string {
   if (!documents.length) {
     return "";
   }
   const body = documents.map((document) => `【${document.title}】\n${document.content}`).join("\n\n");
   return `${title}：\n${body}`;
+}
+
+function renderHarnessSettings(settings?: HarnessSettings): string {
+  if (!settings) {
+    return "";
+  }
+  const permissions = settings.permissions;
+  const sections = [
+    settings.mode ? `运行模式：${settings.mode}` : "",
+    settings.principle ? `权限原则：${settings.principle}` : "",
+    permissions?.autoApprove?.length ? `自动允许：${permissions.autoApprove.join("、")}` : "",
+    permissions?.confirm?.length ? `必须确认：${permissions.confirm.join("、")}` : "",
+    permissions?.deny?.length ? `默认禁止：${permissions.deny.join("、")}` : "",
+    settings.modelRoles ? `模型角色：${Object.entries(settings.modelRoles).map(([role, value]) => `${role}=${value}`).join("、")}` : ""
+  ].filter(Boolean);
+  return sections.length ? `权限档案：\n${sections.join("\n")}` : "";
+}
+
+function renderHarnessHooks(plan?: HarnessHookPlan): string {
+  if (!plan?.hooks.length) {
+    return "";
+  }
+  return `确定性钩子：\n${plan.hooks
+    .map((hook) => `- ${hook.description}${hook.blocks ? "，可阻止高风险动作" : ""}`)
+    .join("\n")}`;
 }
 
 function titleFromPath(relativePath: string): string {

@@ -11,6 +11,7 @@ import {
   recordHarnessLesson,
   readHarnessProgress,
   renderHarnessMethod,
+  renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessSummary,
   writeHarnessProgress
@@ -24,21 +25,51 @@ describe("harness", () => {
       await writeFile(join(root, "CLAUDE.md"), "不要把过程术语直接暴露给普通用户。\n", "utf8");
       await mkdir(join(root, ".ccli", "harness", "rules"), { recursive: true });
       await writeFile(join(root, ".ccli", "harness", "rules", "safety.md"), "高影响动作必须确认。\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness", "agents"), { recursive: true });
+      await writeFile(join(root, ".ccli", "harness", "agents", "reviewer.md"), "独立检查目标、风险和验证。\n", "utf8");
       await writeFile(join(root, ".ccli", "harness", "feature-list.json"), "{\"features\":[]}\n", "utf8");
       await writeFile(join(root, ".ccli", "harness", "init-check.json"), "{\"steps\":[\"先验证当前状态\"]}\n", "utf8");
+      await writeFile(
+        join(root, ".ccli", "harness", "settings.json"),
+        JSON.stringify({
+          permissions: {
+            autoApprove: ["读取项目说明"],
+            confirm: ["推送分支"],
+            deny: ["无确认发布"]
+          }
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(root, ".ccli", "harness", "hooks.json"),
+        JSON.stringify({
+          hooks: [
+            { id: "dangerous-action-gate", when: "before-tool", description: "执行前拦截危险动作", blocks: true },
+            { id: "quality-feedback", when: "after-edit", description: "改动后运行验证" }
+          ]
+        }),
+        "utf8"
+      );
 
       const context = await loadHarnessContext(root);
       const prompt = harnessPrompt(context, "plan");
 
       expect(context.standingFacts).toHaveLength(2);
       expect(context.artifacts).toHaveLength(2);
+      expect(context.agents).toHaveLength(1);
+      expect(context.settings?.permissions?.confirm).toContain("推送分支");
+      expect(context.hookPlan?.hooks).toHaveLength(2);
       expect(prompt).toContain("整理中文产品方案");
       expect(prompt).toContain("项目固定事实");
       expect(prompt).toContain("执行清单");
+      expect(prompt).toContain("权限档案");
+      expect(prompt).toContain("确定性钩子");
+      expect(prompt).toContain("独立子代理");
       expect(prompt).toContain("先验证当前状态");
       expect(prompt).toContain("不展示代码、命令、路径、堆栈");
       expect(prompt).toContain("生成和评估分离");
       expect(renderHarnessSummary(context)).toContain("驾驭系统已加载");
+      expect(renderHarnessProfile(context)).toContain("高影响动作需要中文确认");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -84,6 +115,8 @@ describe("harness", () => {
 
       expect(report.score).toBeLessThan(100);
       expect(report.gaps).toContain("安全和产品规则");
+      expect(report.gaps).toContain("权限档案");
+      expect(report.gaps).toContain("确定性钩子计划");
       expect(report.gaps).toContain("结构化任务清单");
       expect(report.gaps).toContain("开工基线检查");
       expect(report.gaps).toContain("失败经验库");
@@ -143,6 +176,8 @@ describe("harness", () => {
   it("explains harness engineering in plain Chinese", () => {
     const method = renderHarnessMethod();
     expect(method).toContain("模型 + 外部支架");
+    expect(method).toContain("权限档案");
+    expect(method).toContain("14 步路线");
     expect(method).toContain("以后不要再这样");
   });
 });

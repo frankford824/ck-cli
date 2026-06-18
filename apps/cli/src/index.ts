@@ -44,6 +44,7 @@ import {
   readHarnessProgress,
   recordHarnessLesson,
   renderHarnessMethod,
+  renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessSummary
 } from "@ccli/harness";
@@ -559,6 +560,7 @@ program
       const readiness = analyzeHarnessReadiness(context, progress);
       print(renderer.render({ type: "info", message: "智能体驾驭系统已启用，会负责规则、护栏、验证反馈和进度记忆。" }));
       print(renderHarnessSummary(context));
+      print(renderHarnessProfile(context));
       print(renderHarnessReadiness(readiness));
       if (progress) {
         print(renderer.render({ type: "info", message: `最近进度：${progress.summary} 下一步：${progress.nextAction}` }));
@@ -1572,6 +1574,20 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isHarnessMethodRequest(request)) {
+    print(renderHarnessMethod());
+    return true;
+  }
+
+  if (isHarnessStatusRequest(request)) {
+    const context = await loadHarnessContext(inputValue.cwd);
+    const progress = await readHarnessProgress(inputValue.cwd);
+    print(renderHarnessSummary(context));
+    print(renderHarnessProfile(context));
+    print(renderHarnessReadiness(analyzeHarnessReadiness(context, progress)));
+    return true;
+  }
+
   if (isSkillInstallRequest(request)) {
     await installSkillsForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
     return true;
@@ -2283,6 +2299,16 @@ function isIdeaCatalogRequest(request: string): boolean {
 function isHarnessInitRequest(request: string): boolean {
   return /(?:初始化|补齐|搭建|启用|安装).*(?:驾驭系统|harness|智能体支架|开发支架|项目指南|项目规则)/i.test(request) ||
     /(?:驾驭系统|harness|智能体支架|开发支架).*(?:初始化|补齐|搭建|启用|安装)/i.test(request);
+}
+
+function isHarnessMethodRequest(request: string): boolean {
+  return /(?:怎么|如何|方法|原理|介绍|说明|使用).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
+    /(?:驾驭|harness|智能体支架|开发支架).*(?:怎么|如何|方法|原理|介绍|说明|使用)/i.test(request);
+}
+
+function isHarnessStatusRequest(request: string): boolean {
+  return /(?:查看|检查|评估|体检|状态).*(?:驾驭系统|harness|智能体支架|开发支架)/i.test(request) ||
+    /(?:驾驭系统|harness|智能体支架|开发支架).*(?:查看|检查|评估|体检|状态)/i.test(request);
 }
 
 function ideaKeyFromNaturalRequest(request: string): string | undefined {
