@@ -7,6 +7,7 @@ describe("experience", () => {
 
     expect(text).toContain("中文开发管家");
     expect(text).toContain("ccli setup");
+    expect(text).toContain("ccli create");
     expect(text).toContain("ccli chat");
     expect(text).not.toContain("diff");
   });

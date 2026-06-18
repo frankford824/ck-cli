@@ -387,7 +387,7 @@ export class GitHubTool {
       ]
         .filter(Boolean)
         .join(" ");
-      const result = await runShell(command, context.cwd, 120_000);
+      const result = await runGithubCli(command, context);
       if (result.exitCode !== 0) {
         await context.audit?.record("tool.github.pr.error", "创建团队审查入口失败", result);
         throw new Error(result.stderr || result.stdout || "创建团队审查入口失败");
@@ -426,10 +426,9 @@ export class GitHubTool {
 
     const ghAvailable = await commandExists("gh", context.cwd);
     if (ghAvailable) {
-      const result = await runShell(
+      const result = await runGithubCli(
         ["gh pr comment", ghRepoFlag(parsedRemote), String(number), "--body", quote(body)].filter(Boolean).join(" "),
-        context.cwd,
-        120_000
+        context
       );
       if (result.exitCode !== 0) {
         await context.audit?.record("tool.github.review.error", "发布审查摘要失败", result);
@@ -452,10 +451,9 @@ export class GitHubTool {
 
     const ghAvailable = await commandExists("gh", context.cwd);
     if (ghAvailable) {
-      const result = await runShell(
+      const result = await runGithubCli(
         ["gh pr ready", ghRepoFlag(parsedRemote), String(number)].filter(Boolean).join(" "),
-        context.cwd,
-        120_000
+        context
       );
       if (result.exitCode !== 0) {
         await context.audit?.record("tool.github.ready.error", "开放团队审查入口失败", result);
@@ -508,12 +506,11 @@ export class GitHubTool {
     const ghAvailable = await commandExists("gh", context.cwd);
     if (ghAvailable) {
       const methodFlag = method === "merge" ? "--merge" : method === "rebase" ? "--rebase" : "--squash";
-      const result = await runShell(
+      const result = await runGithubCli(
         ["gh pr merge", ghRepoFlag(parsedRemote), String(options.number), methodFlag, "--delete-branch"]
           .filter(Boolean)
           .join(" "),
-        context.cwd,
-        120_000
+        context
       );
       if (result.exitCode !== 0) {
         await context.audit?.record("tool.github.merge.error", "合并团队审查入口失败", result);
@@ -620,6 +617,42 @@ export async function runShell(command: string, cwd: string, timeoutMs: number):
       resolvePromise({ command, exitCode: 1, stdout, stderr: error.message });
     });
   });
+}
+
+async function runGithubCli(command: string, context: ToolContext): Promise<CommandResult> {
+  let last: CommandResult | undefined;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (attempt > 1) {
+      await context.audit?.record("tool.github.retry", "代码托管平台暂时不稳定，正在重试", { attempt });
+      await sleep(1000 * attempt);
+    }
+
+    const result = await runShell(command, context.cwd, 120_000);
+    last = result;
+    if (result.exitCode === 0 || !isTransientGithubCliFailure(result)) {
+      return result;
+    }
+  }
+  return last ?? { command, exitCode: 1, stdout: "", stderr: "代码托管平台操作失败" };
+}
+
+function isTransientGithubCliFailure(result: CommandResult): boolean {
+  const text = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  return [
+    "tls handshake timeout",
+    "i/o timeout",
+    "timeout",
+    "temporary failure",
+    "connection reset",
+    "eof",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway timeout"
+  ].some((pattern) => text.includes(pattern));
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
 function killShellTree(pid: number | undefined): void {

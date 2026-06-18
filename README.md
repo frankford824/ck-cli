@@ -37,6 +37,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli setup
+ccli create "做一个客户管理系统，能记录跟进和提醒"
 ccli doctor
 ```
 
@@ -89,6 +90,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli setup
+ccli create "做一个客户管理系统"
 ccli doctor
 ccli chat
 ccli "给订单页面增加导出按钮"
@@ -116,7 +118,13 @@ ccli hardware --expert
 ccli setup
 ```
 
-它会用中文带你完成首次设置：选择模型服务、保存授权、可选创建第一个项目。设置完成后，你也可以不用学命令，直接说目标：
+它会用中文带你完成首次设置：选择模型服务、保存授权、可选创建第一个项目。设置完成后，你可以用一句话创建产品并直接开工：
+
+```bash
+ccli create "做一个客户管理系统，能记录客户、跟进和提醒"
+```
+
+如果已经在项目里，也可以不用学命令，直接说目标：
 
 ```bash
 ccli "把首页改得更像高端咨询公司"
@@ -151,6 +159,33 @@ ccli setup --provider openai --api-key "你的授权码" --project 我的应用
 ```
 
 支持的模型服务：OpenAI、Anthropic、Google、Qwen、DeepSeek、Kimi。
+
+## 一句话创建产品
+
+`ccli create` 会把一句中文目标变成一个新项目，并立刻推进第一轮开发：
+
+```bash
+ccli create "做一个门店预约系统，客户能选时间，老板能看预约"
+```
+
+它会自动完成：
+
+- 生成中文 Web 应用项目。
+- 建立本地保存记录。
+- 读取全局模型授权。
+- 按你的产品目标执行第一轮规划、开发、验证和审查。
+
+如果想指定项目名：
+
+```bash
+ccli create "做一个门店预约系统" --name 门店预约
+```
+
+如果希望创建后立即安装依赖并启用更完整验证：
+
+```bash
+ccli create "做一个门店预约系统" --install
+```
 
 ## 驾驭系统
 
