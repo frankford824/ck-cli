@@ -1,0 +1,29 @@
+{
+  "name": "ccli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ccli": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean"
+  },
+  "dependencies": {
+    "@ccli/agent-core": "workspace:*",
+    "@ccli/memory": "workspace:*",
+    "@ccli/methodology": "workspace:*",
+    "@ccli/product-ui": "workspace:*",
+    "@ccli/providers": "workspace:*",
+    "@ccli/review": "workspace:*",
+    "@ccli/session": "workspace:*",
+    "@ccli/templates": "workspace:*",
+    "@ccli/tools": "workspace:*",
+    "commander": "^14.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}

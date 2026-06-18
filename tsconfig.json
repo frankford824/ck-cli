@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ccli/agent-core": ["packages/agent-core/src/index.ts"],
+      "@ccli/memory": ["packages/memory/src/index.ts"],
+      "@ccli/methodology": ["packages/methodology/src/index.ts"],
+      "@ccli/policy": ["packages/policy/src/index.ts"],
+      "@ccli/product-ui": ["packages/product-ui/src/index.ts"],
+      "@ccli/providers": ["packages/providers/src/index.ts"],
+      "@ccli/review": ["packages/review/src/index.ts"],
+      "@ccli/session": ["packages/session/src/index.ts"],
+      "@ccli/templates": ["packages/templates/src/index.ts"],
+      "@ccli/tools": ["packages/tools/src/index.ts"]
+    }
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "vitest.config.ts"]
+}

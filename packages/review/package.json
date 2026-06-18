@@ -1,0 +1,27 @@
+{
+  "name": "@ccli/review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean"
+  },
+  "dependencies": {
+    "@ccli/product-ui": "workspace:*",
+    "@ccli/providers": "workspace:*",
+    "@ccli/session": "workspace:*",
+    "@ccli/tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}
