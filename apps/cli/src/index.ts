@@ -10,6 +10,7 @@ import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import {
   createAcceptanceGuide,
+  createBossApprovalReceipt,
   createBossBrief,
   createBossHome,
   createBossReportCard,
@@ -22,6 +23,7 @@ import {
   hardwareSchema,
   healthSummary,
   renderAcceptanceGuide,
+  renderBossApprovalReceipt,
   renderBossBrief,
   renderBossHome,
   renderBossReportCard,
@@ -33,6 +35,7 @@ import {
   renderWelcome,
   speechText,
   starterIdeas,
+  type BossApprovalReceipt,
   type BossBrief,
   type ExperienceAction,
   type HardwareResponse,
@@ -386,6 +389,44 @@ program
         return;
       }
       print(renderAcceptanceGuide(guide));
+    });
+  });
+
+program
+  .command("approve")
+  .aliases(["signoff", "pass"])
+  .argument("[note...]", "老板验收备注")
+  .description("记录老板验收通过凭证")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (noteParts: string[] | undefined, options: { json?: boolean }) => {
+    await withCli(async ({ cwd, renderer }) => {
+      const receipt = await recordBossApproval(cwd, noteParts?.join(" ").trim());
+      if (options.json) {
+        print(JSON.stringify(receipt, null, 2));
+        return;
+      }
+      print(renderer.render({ type: "done", message: "老板验收通过已记录，后续交付会带上这份凭证。", severity: "success" }));
+      print(renderBossApprovalReceipt(receipt));
+    });
+  });
+
+program
+  .command("approval")
+  .alias("receipt")
+  .description("查看老板验收凭证")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd, renderer }) => {
+      const receipt = await readBossApprovalForCurrentProduct(cwd);
+      if (!receipt) {
+        print(renderer.render({ type: "info", message: "还没有老板验收凭证。看完页面后，可以说：记录验收通过。" }));
+        return;
+      }
+      if (options.json) {
+        print(JSON.stringify(receipt, null, 2));
+        return;
+      }
+      print(renderBossApprovalReceipt(receipt));
     });
   });
 
@@ -1332,6 +1373,22 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     ));
   }
 
+  if (isApprovalRequest(utterance)) {
+    const receipt = await recordBossApproval(inputValue.cwd, approvalNoteFromNaturalRequest(utterance));
+    const actions = nextPlanActions({ summary: receipt.summary, actions: receipt.actions });
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "success",
+        say: receipt.summary,
+        screen: renderBossApprovalReceipt(receipt),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "approval-receipt", receipt }
+    ));
+  }
+
   if (isSatisfiedDeliveryRequest(utterance)) {
     const actions = [
       commandAction("confirm-delivery", "确认交付并合并", "ccli finish --yes", "会发送成果、进行独立审查，并在审查通过后合并。", true),
@@ -1653,6 +1710,13 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isApprovalRequest(request)) {
+    const receipt = await recordBossApproval(inputValue.cwd, approvalNoteFromNaturalRequest(request));
+    print(inputValue.renderer.render({ type: "done", message: "老板验收通过已记录，后续交付会带上这份凭证。", severity: "success" }));
+    print(renderBossApprovalReceipt(receipt));
+    return true;
+  }
+
   if (isTryDemoRequest(request)) {
     await runTryDemo({
       renderer: inputValue.renderer,
@@ -1850,13 +1914,14 @@ async function buildBossHome(cwd: string) {
 async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
   const [projects, workspace] = await Promise.all([readProjectRegistry(), resolveProductWorkspace(cwd)]);
   const targetCwd = workspace?.cwd ?? cwd;
-  const [progress, state, readiness, audit, nextPlan, brief] = await Promise.all([
+  const [progress, state, readiness, audit, nextPlan, brief, approval] = await Promise.all([
     readHarnessProgress(targetCwd).catch(() => undefined),
     readState(targetCwd).catch(() => undefined),
     previewReadiness(targetCwd).catch(() => undefined),
     readLatestAuditSummary(targetCwd).catch(() => ({ entries: [] })),
     buildNextActionPlan(targetCwd).catch(() => ({ summary: "先看当前结果，再决定下一步。", actions: [] })),
-    readBossBrief(targetCwd).catch(() => undefined)
+    readBossBrief(targetCwd).catch(() => undefined),
+    readBossApproval(targetCwd).catch(() => undefined)
   ]);
   const current = workspace?.project ?? projectForCwd(projects, targetCwd);
   const latest = workspace?.usedLatest ? workspace.project : undefined;
@@ -1869,8 +1934,30 @@ async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
     state,
     canPreview: Boolean(readiness?.canPreview),
     nextActions: hasProduct ? reportCardActions(nextPlan.actions, Boolean(readiness?.canPreview), hasProduct) : undefined,
-    auditSummary: audit.entries.length ? "最近处理过程已保存，可追溯。" : undefined
+    auditSummary: audit.entries.length ? "最近处理过程已保存，可追溯。" : undefined,
+    approvalSummary: approval ? `老板已在 ${formatShortDate(approval.approvedAt)} 记录验收通过。` : undefined
   });
+}
+
+async function recordBossApproval(cwd: string, note?: string): Promise<BossApprovalReceipt> {
+  const workspace = await resolveProductWorkspace(cwd);
+  const targetCwd = workspace?.cwd ?? cwd;
+  const guide = await buildAcceptanceGuide(targetCwd);
+  const receipt = createBossApprovalReceipt({
+    productName: guide.productName,
+    goal: guide.goal,
+    checks: guide.checks,
+    note,
+    approvedAt: new Date().toISOString()
+  });
+  await writeBossApproval(targetCwd, receipt);
+  return receipt;
+}
+
+async function readBossApprovalForCurrentProduct(cwd: string): Promise<BossApprovalReceipt | undefined> {
+  const workspace = await resolveProductWorkspace(cwd);
+  const targetCwd = workspace?.cwd ?? cwd;
+  return readBossApproval(targetCwd);
 }
 
 interface BossBriefResult {
@@ -1937,6 +2024,28 @@ async function writeBossBrief(cwd: string, brief: BossBrief): Promise<void> {
 
 function bossBriefPath(cwd: string): string {
   return resolve(cwd, ".ccli", "brief.json");
+}
+
+async function readBossApproval(cwd: string): Promise<BossApprovalReceipt | undefined> {
+  try {
+    return JSON.parse(await readFile(bossApprovalPath(cwd), "utf8")) as BossApprovalReceipt;
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function writeBossApproval(cwd: string, receipt: BossApprovalReceipt): Promise<void> {
+  const path = bossApprovalPath(cwd);
+  await mkdir(resolve(path, ".."), { recursive: true });
+  await writeFile(path, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  await chmod(path, 0o600).catch(() => undefined);
+}
+
+function bossApprovalPath(cwd: string): string {
+  return resolve(cwd, ".ccli", "approval.json");
 }
 
 function reportCardActions(baseActions: NextAction[], canPreview: boolean, hasProduct: boolean): NextAction[] {
@@ -2433,6 +2542,12 @@ async function runDeliveryFlow(inputValue: {
     return;
   }
 
+  let approval = await readBossApproval(cwd).catch(() => undefined);
+  if (!approval) {
+    approval = await recordBossApproval(cwd, "老板确认当前效果满意，进入交付。");
+    print(inputValue.renderer.render({ type: "done", message: "已记录老板验收通过凭证。", severity: "success" }));
+  }
+
   const config = await loadCcliConfig(cwd);
   const registry = createDefaultProviderRegistry(config);
   const audit = await AuditSession.create({ cwd, task: "自动交付" });
@@ -2450,7 +2565,7 @@ async function runDeliveryFlow(inputValue: {
   });
 
   const title = inputValue.title ?? "ccli 自动交付";
-  const body = inputValue.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。";
+  const body = appendApprovalToPrBody(inputValue.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。", approval);
   const pr = await github.createOrFindDraftPr(
     { cwd, audit, confirmed: true },
     {
@@ -2510,6 +2625,26 @@ async function runDeliveryFlow(inputValue: {
     }
   );
   print(inputValue.renderer.render({ type: merge.merged ? "done" : "risk", message: merge.message, severity: merge.merged ? "success" : "warning" }));
+}
+
+function appendApprovalToPrBody(body: string, approval?: BossApprovalReceipt): string {
+  if (!approval) {
+    return body;
+  }
+  const lines = [
+    body.trim(),
+    "",
+    "## 老板验收凭证",
+    "",
+    approval.summary,
+    approval.goal ? `目标：${approval.goal}` : undefined,
+    `通过时间：${formatShortDate(approval.approvedAt)}`,
+    approval.note ? `备注：${approval.note}` : undefined,
+    "",
+    "验收依据：",
+    ...approval.proof.slice(0, 5).map((item) => `- ${item}`)
+  ].filter((line): line is string => Boolean(line));
+  return lines.join("\n");
 }
 
 async function runUndoFlow(inputValue: {
@@ -2755,6 +2890,29 @@ function isBriefRequest(request: string): boolean {
     /(?:业务简报|需求简报|产品简报|老板简报|需求契约|业务契约|产品契约|整理需求|整理想法|梳理需求|梳理想法|验收标准是什么|首版要做什么)/.test(normalized) ||
     /^(?:brief|spec|contract)$/.test(normalized)
   );
+}
+
+function isApprovalRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  if (/(?:交付|发布|合并|上线|提交|ship|finish|merge|deploy)/.test(normalized)) {
+    return false;
+  }
+  return (
+    /(?:记录|保存|生成|创建)?(?:老板)?(?:验收通过|确认通过|检查通过|效果通过|已经验收|已验收|看过了满意|看过满意|确认满意|可以通过|认可当前效果)/.test(normalized) ||
+    /^(?:approve|approval|signoff|pass)$/.test(normalized)
+  );
+}
+
+function approvalNoteFromNaturalRequest(request: string): string | undefined {
+  const cleaned = request
+    .replace(/^(?:请|帮我|麻烦)?/, "")
+    .replace(/^(?:记录|保存|生成|创建)?(?:老板)?(?:验收通过|确认通过|检查通过|效果通过|已经验收|已验收|确认满意|可以通过|认可当前效果)[：:\s]*/g, "")
+    .replace(/^(?:我|老板)?(?:看过了|看过)(?:，|,)?(?:满意|可以|通过)?[：:\s]*/g, "")
+    .trim();
+  if (!cleaned || cleaned === request.trim()) {
+    return undefined;
+  }
+  return cleaned;
 }
 
 function briefGoalFromNaturalRequest(request: string): string | undefined {
