@@ -38,6 +38,7 @@ export function welcomeCard(): WelcomeCard {
     summary: "你只需要说清楚想要的结果，ccli 负责规划、开发、验证、审查和交付。",
     nextActions: [
       "首次设置：ccli setup",
+      "最快体验：ccli go \"做一个客户管理系统\"",
       "一句话创建产品：ccli create \"做一个客户管理系统\"",
       "查看本地页面：ccli preview --install",
       "创建空项目：ccli new 我的应用",
@@ -47,6 +48,7 @@ export function welcomeCard(): WelcomeCard {
     ],
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
+      "一键做一个门店预约系统并打开页面",
       "把首页改得更像高端咨询公司",
       "给客户列表增加搜索和导出",
       "检查这个项目为什么不能正常启动",

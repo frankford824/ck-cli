@@ -68,14 +68,17 @@ export interface MergePrResult {
 }
 
 export class ShellTool {
-  async run(command: string, context: ToolContext & { kind?: OperationKind; timeoutMs?: number }): Promise<CommandResult> {
+  async run(
+    command: string,
+    context: ToolContext & { kind?: OperationKind; timeoutMs?: number; onOutput?: (chunk: string) => void }
+  ): Promise<CommandResult> {
     const decision = assessOperation({ kind: context.kind ?? "shell", command });
     if (!decision.allowed || (decision.confirmationRequired && !context.confirmed)) {
       throw new PolicyBlockedError(decision);
     }
 
     await context.audit?.record("tool.shell.start", "开始执行后台操作", { command });
-    const result = await runShell(command, context.cwd, context.timeoutMs ?? 120_000);
+    const result = await runShell(command, context.cwd, context.timeoutMs ?? 120_000, context.onOutput);
     await context.audit?.record("tool.shell.end", "后台操作已结束", result);
     return result;
   }
@@ -577,7 +580,12 @@ export async function createTemplateProject(root: string, name: string, audit?: 
   return files;
 }
 
-export async function runShell(command: string, cwd: string, timeoutMs: number): Promise<CommandResult> {
+export async function runShell(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  onOutput?: (chunk: string) => void
+): Promise<CommandResult> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, {
       cwd,
@@ -592,28 +600,48 @@ export async function runShell(command: string, cwd: string, timeoutMs: number):
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let interruptedSignal: NodeJS.Signals | undefined;
     const timer = setTimeout(() => {
       timedOut = true;
       killShellTree(child.pid);
     }, timeoutMs);
+    const stopFromSignal = (signal: NodeJS.Signals) => {
+      interruptedSignal = signal;
+      killShellTree(child.pid);
+    };
+    process.once("SIGINT", stopFromSignal);
+    process.once("SIGTERM", stopFromSignal);
+    const cleanup = () => {
+      clearTimeout(timer);
+      process.off("SIGINT", stopFromSignal);
+      process.off("SIGTERM", stopFromSignal);
+    };
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stdout += text;
+      onOutput?.(text);
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stderr += text;
+      onOutput?.(text);
     });
     child.on("close", (exitCode) => {
-      clearTimeout(timer);
+      cleanup();
       resolvePromise({
         command,
-        exitCode: exitCode ?? (timedOut ? 124 : 1),
+        exitCode: exitCode ?? (timedOut ? 124 : interruptedSignal === "SIGINT" ? 130 : interruptedSignal === "SIGTERM" ? 143 : 1),
         stdout,
-        stderr: timedOut ? `${stderr}\n后台操作超时，已停止。`.trim() : stderr
+        stderr: timedOut
+          ? `${stderr}\n后台操作超时，已停止。`.trim()
+          : interruptedSignal
+            ? `${stderr}\n后台操作已停止。`.trim()
+            : stderr
       });
     });
     child.on("error", (error) => {
-      clearTimeout(timer);
+      cleanup();
       resolvePromise({ command, exitCode: 1, stdout, stderr: error.message });
     });
   });

@@ -16,6 +16,7 @@
 - 借鉴 Anthropic frontend-design skill：新项目默认带中文前端设计技能，开发代理会读取设计契约和技能约束。
 - 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环和 `.ccli/progress.json` 进度落盘。
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
+- `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
 
 ## 一键安装
 
@@ -38,9 +39,9 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli setup
-ccli create "做一个客户管理系统，能记录跟进和提醒"
-ccli preview --install
+ccli go "做一个客户管理系统，能记录跟进和提醒" --no-preview
 ccli doctor
+ccli preview --install
 ```
 
 如果要在 PR 分支上提前试用：
@@ -92,6 +93,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli setup
+ccli go "做一个客户管理系统"
 ccli create "做一个客户管理系统"
 ccli preview --install
 ccli doctor
@@ -122,7 +124,13 @@ ccli hardware --expert
 ccli setup
 ```
 
-它会用中文带你完成首次设置：选择模型服务、保存授权、可选创建第一个项目。设置完成后，你可以用一句话创建产品并直接开工：
+它会用中文带你完成首次设置：选择模型服务、保存授权、可选创建第一个项目。设置完成后，最快的方式是一句话生成产品并直接打开本地页面：
+
+```bash
+ccli go "做一个客户管理系统，能记录客户、跟进和提醒"
+```
+
+如果只想先生成项目、不打开页面，也可以用：
 
 ```bash
 ccli create "做一个客户管理系统，能记录客户、跟进和提醒"
@@ -163,6 +171,30 @@ ccli setup --provider openai --api-key "你的授权码" --project 我的应用
 ```
 
 支持的模型服务：OpenAI、Anthropic、Google、Qwen、DeepSeek、Kimi。
+
+## 一键开箱体验
+
+`ccli go` 是给普通老板准备的最快入口：
+
+```bash
+ccli go "做一个门店预约系统，客户能选时间，老板能看预约"
+```
+
+它会自动完成：
+
+- 创建新的中文 Web 项目。
+- 按你的目标生成首版业务页面。
+- 自动验证并保存本次成果。
+- 准备本地运行内容。
+- 直接打开本地预览页面。
+
+网络较慢时，ccli 会继续用中文提示准备进度。预览打开后保持窗口不关即可查看页面，结束时按 Ctrl+C。
+
+如果只是想生成首版，不立刻打开页面：
+
+```bash
+ccli go "做一个门店预约系统" --no-preview
+```
 
 ## 一句话创建产品
 
