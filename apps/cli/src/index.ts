@@ -86,18 +86,65 @@ program
         print(renderer.render({ type: "risk", message: "请先说清楚想做的产品目标。", severity: "warning" }));
         return;
       }
+      await createProductFromIdea({
+        cwd,
+        idea,
+        name: options.name,
+        install: Boolean(options.install),
+        preview: Boolean(options.preview),
+        previewAutoInstall: false,
+        withPr: Boolean(options.withPr),
+        expert,
+        yes,
+        renderer
+      });
+    });
+  });
 
-      const name = options.name?.trim() || projectNameFromIdea(idea);
-      const target = resolve(cwd, name);
-      print(renderer.render({ type: "inspect", message: "正在为这个产品目标准备新项目。" }));
-      await createBossProject({ name, target, install: Boolean(options.install), yes, task: `创建产品 ${name}` });
-      print(renderer.render({ type: "plan", message: "项目已准备好，开始按你的目标推进第一轮开发。" }));
-      await runRequirement({ cwd: target, expert, yes, requirement: idea, withPr: Boolean(options.withPr) });
-      print(renderer.render({ type: "done", message: "第一个版本已处理完成。后续可以进入这个项目继续用中文提需求。", severity: "success" }));
-      if (options.preview) {
-        await ensureDependenciesForPreview({ cwd: target, renderer, yes });
-        await startPreviewServer({ cwd: target, renderer, host: "127.0.0.1", port: 5173 });
+program
+  .command("go")
+  .alias("app")
+  .argument("<idea...>", "一句话描述想做的产品")
+  .description("一句话创建产品、完成首版并打开本地预览")
+  .option("--name <name>", "项目名称")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--no-preview", "只生成首版，不打开预览")
+  .option("--with-pr", "完成后尝试创建团队审查入口")
+  .action(async (ideaParts: string[], options: { name?: string; host?: string; port?: string; preview?: boolean; withPr?: boolean }) => {
+    await withCli(async ({ renderer, cwd, expert, yes }) => {
+      const idea = ideaParts.join(" ").trim();
+      if (!idea) {
+        print(renderer.render({ type: "risk", message: "请直接说想做什么产品。", severity: "warning" }));
+        return;
       }
+
+      const port = Number(options.port ?? "5173");
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+        return;
+      }
+
+      print(
+        renderer.render({
+          type: "info",
+          message: options.preview === false ? "开始一键生成产品。" : "开始一键生成产品。完成后会直接打开本地预览。"
+        })
+      );
+      await createProductFromIdea({
+        cwd,
+        idea,
+        name: options.name,
+        install: false,
+        preview: options.preview !== false,
+        previewAutoInstall: true,
+        previewHost: options.host ?? "127.0.0.1",
+        previewPort: port,
+        withPr: Boolean(options.withPr),
+        expert,
+        yes,
+        renderer
+      });
     });
   });
 
@@ -679,12 +726,14 @@ async function ensureDependenciesForPreview(inputValue: { cwd: string; renderer:
   const audit = await AuditSession.create({ cwd: inputValue.cwd, task: "准备本地预览" });
   const { ShellTool } = await import("@ccli/tools");
   print(inputValue.renderer.render({ type: "validate", message: "正在准备本地预览所需内容。" }));
+  const reportInstallProgress = createInstallProgressReporter(inputValue.renderer);
   const result = await new ShellTool().run(command, {
     cwd: inputValue.cwd,
     audit,
     kind: "install",
     confirmed: true,
-    timeoutMs: 180_000
+    timeoutMs: 300_000,
+    onOutput: reportInstallProgress
   });
   if (result.exitCode !== 0) {
     throw new Error("本地预览准备失败，技术细节已记录到审计日志。");
@@ -794,6 +843,70 @@ function previewCommand(manager: "pnpm" | "npm" | "yarn" | "bun", host: string, 
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function createInstallProgressReporter(renderer: ProductRenderer): (chunk: string) => void {
+  let lastReportAt = Date.now();
+  return (chunk: string) => {
+    const now = Date.now();
+    if (now - lastReportAt < 12_000) {
+      return;
+    }
+    lastReportAt = now;
+    const message = /ECONNRESET|retry|Request took|download/i.test(chunk)
+      ? "网络下载较慢，仍在准备本地预览。"
+      : "本地预览仍在准备中。";
+    print(renderer.render({ type: "validate", message }));
+  };
+}
+
+async function createProductFromIdea(inputValue: {
+  cwd: string;
+  idea: string;
+  name?: string;
+  install: boolean;
+  preview: boolean;
+  previewAutoInstall: boolean;
+  previewHost?: string;
+  previewPort?: number;
+  withPr: boolean;
+  expert: boolean;
+  yes: boolean;
+  renderer: ProductRenderer;
+}): Promise<string> {
+  const name = inputValue.name?.trim() || projectNameFromIdea(inputValue.idea);
+  const target = resolve(inputValue.cwd, name);
+  print(inputValue.renderer.render({ type: "inspect", message: "正在为这个产品目标准备新项目。" }));
+  await createBossProject({
+    name,
+    target,
+    install: inputValue.install,
+    yes: inputValue.yes,
+    task: `创建产品 ${name}`
+  });
+  print(inputValue.renderer.render({ type: "plan", message: "项目已准备好，开始按你的目标推进第一轮开发。" }));
+  await runRequirement({
+    cwd: target,
+    expert: inputValue.expert,
+    yes: inputValue.yes,
+    requirement: inputValue.idea,
+    withPr: inputValue.withPr
+  });
+  print(inputValue.renderer.render({ type: "done", message: "第一个版本已处理完成。后续可以继续用中文提需求。", severity: "success" }));
+  if (inputValue.preview) {
+    await ensureDependenciesForPreview({
+      cwd: target,
+      renderer: inputValue.renderer,
+      yes: inputValue.previewAutoInstall ? true : inputValue.yes
+    });
+    await startPreviewServer({
+      cwd: target,
+      renderer: inputValue.renderer,
+      host: inputValue.previewHost ?? "127.0.0.1",
+      port: inputValue.previewPort ?? 5173
+    });
+  }
+  return target;
 }
 
 async function createBossProject(inputValue: {

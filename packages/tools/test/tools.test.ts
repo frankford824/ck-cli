@@ -53,6 +53,20 @@ describe("tools", () => {
     }
   });
 
+  it("streams shell output to a progress callback", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-"));
+    try {
+      const chunks: string[] = [];
+      const result = await runShell("node -e \"console.log('progress-ready')\"", cwd, 30_000, (chunk) => {
+        chunks.push(chunk);
+      });
+      expect(result.exitCode).toBe(0);
+      expect(chunks.join("")).toContain("progress-ready");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("finds an existing open PR for the current branch", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ccli-tools-"));
     try {
