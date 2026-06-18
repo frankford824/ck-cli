@@ -252,6 +252,47 @@ program
   });
 
 program
+  .command("wizard")
+  .aliases(["coach", "guide"])
+  .argument("[idea...]", "一句话描述想做的产品")
+  .description("老板开工向导：问几句就生成业务简报")
+  .option("--no-launch", "只保存业务简报，不进入首版生成")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--no-preview", "生成首版但不打开预览")
+  .option("--no-open", "启动预览但不自动打开浏览器")
+  .option("--with-pr", "完成后尝试创建团队审查入口")
+  .action(
+    async (
+      ideaParts: string[] | undefined,
+      options: { launch?: boolean; host?: string; port?: string; preview?: boolean; open?: boolean; withPr?: boolean }
+    ) => {
+      await withCli(async ({ renderer, cwd, expert, yes }) => {
+        const port = Number(options.port ?? "5173");
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+          return;
+        }
+
+        await runBossWizard({
+          cwd,
+          renderer,
+          expert,
+          yes,
+          idea: ideaParts?.join(" ").trim(),
+          launch: options.launch !== false,
+          preview: options.preview !== false,
+          previewAutoInstall: true,
+          previewOpenBrowser: options.open !== false,
+          previewHost: options.host ?? "127.0.0.1",
+          previewPort: port,
+          withPr: Boolean(options.withPr)
+        });
+      });
+    }
+  );
+
+program
   .command("try")
   .alias("demo")
   .description("安全试用：创建一个演示产品并打开页面")
@@ -1386,6 +1427,27 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     ));
   }
 
+  if (isWizardRequest(utterance)) {
+    const idea = wizardIdeaFromNaturalRequest(utterance);
+    const command = idea ? `ccli wizard ${shellQuote(idea)}` : "ccli wizard";
+    const actions = [
+      commandAction("open-boss-wizard", "打开开工向导", command, "在终端里问四个业务问题，并保存成业务简报。"),
+      utteranceAction("question-card", "先看追问卡", idea ? `帮我澄清需求：${idea}` : "帮我澄清需求"),
+      utteranceAction("safe-demo", "先安全试用", "试用一下")
+    ];
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "可以进入老板开工向导。它会问四个业务问题，然后生成可直接开工的业务简报。",
+        screen: "老板开工向导\n会确认：想做什么、谁来用、第一眼看什么、怎样算首版通过。",
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "boss-wizard", command, idea }
+    ));
+  }
+
   if (isAnswerRequest(utterance)) {
     const answer = answerTextFromNaturalRequest(utterance);
     if (!answer) {
@@ -1869,6 +1931,29 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isWizardRequest(request)) {
+    if (!input.isTTY) {
+      print(inputValue.renderer.render({ type: "info", message: "当前环境不能逐步提问，已先生成需求追问卡。要进入问答式开工，请在终端运行：ccli wizard。" }));
+      print(renderBossQuestionCard(await buildBossQuestionCard(inputValue.cwd, wizardIdeaFromNaturalRequest(request))));
+      return true;
+    }
+    await runBossWizard({
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      idea: wizardIdeaFromNaturalRequest(request),
+      launch: true,
+      preview: true,
+      previewAutoInstall: true,
+      previewOpenBrowser: true,
+      previewHost: "127.0.0.1",
+      previewPort: 5173,
+      withPr: false
+    });
+    return true;
+  }
+
   if (isAnswerRequest(request)) {
     const answer = answerTextFromNaturalRequest(request);
     if (!answer) {
@@ -2228,6 +2313,21 @@ interface BriefLaunchOptions {
   withPr: boolean;
 }
 
+interface BossWizardOptions {
+  cwd: string;
+  renderer: ProductRenderer;
+  expert: boolean;
+  yes: boolean;
+  idea?: string;
+  launch: boolean;
+  preview: boolean;
+  previewAutoInstall: boolean;
+  previewOpenBrowser: boolean;
+  previewHost: string;
+  previewPort: number;
+  withPr: boolean;
+}
+
 async function buildOrSaveBossBrief(cwd: string, goal?: string): Promise<BossBriefResult> {
   const workspace = await resolveProductWorkspace(cwd);
   const targetCwd = workspace?.cwd ?? cwd;
@@ -2286,6 +2386,136 @@ async function buildOrSaveBossBriefFromAnswers(cwd: string, answerText: string):
     usedLatest: Boolean(workspace?.usedLatest),
     targetCwd
   };
+}
+
+async function runBossWizard(inputValue: BossWizardOptions): Promise<void> {
+  const existing = await buildOrSaveBossBrief(inputValue.cwd).catch(() => undefined);
+  if (existing?.usedLatest && existing.workspace) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(existing.workspace)}。` }));
+  }
+
+  print(inputValue.renderer.render({ type: "info", message: "老板开工向导会问 4 个业务问题，然后生成一份可直接开工的业务简报。" }));
+  const scriptedAnswers = input.isTTY ? [] : await readWizardScriptedAnswers();
+  const rl = input.isTTY ? createInterface({ input, output }) : undefined;
+  try {
+    const existingBrief = existing?.brief;
+    const goal = cleanWizardAnswer(inputValue.idea) ?? (await askWizardText(rl, scriptedAnswers, "你想做什么产品？", existingBrief?.goal));
+    if (!goal) {
+      print(inputValue.renderer.render({ type: "risk", message: "还不知道要做什么产品。可以重新运行开工向导，再用一句话描述目标。", severity: "warning" }));
+      return;
+    }
+
+    const audience = await askWizardText(rl, scriptedAnswers, "谁每天会用？", existingBrief?.audience ?? "老板和一线同事");
+    const firstScreen = await askWizardText(rl, scriptedAnswers, "打开后第一眼最想看到什么？", firstScreenDefault(existingBrief));
+    const passCondition = await askWizardText(rl, scriptedAnswers, "什么情况算首版通过？", passConditionDefault(existingBrief));
+    const result = await buildOrSaveBossBriefFromAnswers(
+      inputValue.cwd,
+      wizardAnswerText({ goal, audience, firstScreen, passCondition })
+    );
+
+    print(inputValue.renderer.render({ type: "done", message: "开工信息已整理成业务简报。", severity: "success" }));
+    print(renderBossBrief(result.brief));
+
+    if (!inputValue.launch) {
+      print(inputValue.renderer.render({ type: "info", message: "业务简报已保存。要开工时直接说：按简报生成首版。" }));
+      return;
+    }
+
+    const shouldLaunch = inputValue.yes || (await askWizardYes(rl, scriptedAnswers, "现在直接生成首版吗？"));
+    if (!shouldLaunch) {
+      print(inputValue.renderer.render({ type: "info", message: "业务简报已保存。确认后再说：按简报生成首版。" }));
+      return;
+    }
+
+    await launchFromBossBrief({
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      preview: inputValue.preview,
+      previewAutoInstall: inputValue.previewAutoInstall,
+      previewOpenBrowser: inputValue.previewOpenBrowser,
+      previewHost: inputValue.previewHost,
+      previewPort: inputValue.previewPort,
+      withPr: inputValue.withPr
+    });
+  } finally {
+    rl?.close();
+  }
+}
+
+async function askWizardText(
+  rl: ReturnType<typeof createInterface> | undefined,
+  scriptedAnswers: string[],
+  question: string,
+  fallback?: string
+): Promise<string> {
+  if (scriptedAnswers.length) {
+    return cleanWizardAnswer(scriptedAnswers.shift()) ?? cleanWizardAnswer(fallback) ?? "";
+  }
+  if (!rl) {
+    return cleanWizardAnswer(fallback) ?? "";
+  }
+  const suffix = fallback ? `（直接回车用：${fallback}）` : "";
+  const answer = await rl.question(`${question}${suffix} `).catch(() => "");
+  return cleanWizardAnswer(answer) ?? cleanWizardAnswer(fallback) ?? "";
+}
+
+async function askWizardYes(
+  rl: ReturnType<typeof createInterface> | undefined,
+  scriptedAnswers: string[],
+  question: string
+): Promise<boolean> {
+  if (scriptedAnswers.length) {
+    return scriptedAnswers.shift()?.trim().toLowerCase() === "yes";
+  }
+  if (!rl) {
+    return false;
+  }
+  const answer = await rl.question(`${question} 输入 yes 继续，直接回车只保存：`).catch(() => "");
+  return answer.trim().toLowerCase() === "yes";
+}
+
+async function readWizardScriptedAnswers(): Promise<string[]> {
+  let content = "";
+  for await (const chunk of input) {
+    content += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+  }
+  return content.split(/\r?\n/).map((line) => line.trim());
+}
+
+function wizardAnswerText(inputValue: {
+  goal: string;
+  audience: string;
+  firstScreen: string;
+  passCondition: string;
+}): string {
+  return [
+    `目标：${inputValue.goal}`,
+    `使用者：${inputValue.audience}`,
+    `第一眼最想看到：${inputValue.firstScreen}`,
+    `首版通过条件：${inputValue.passCondition}`
+  ].join("；");
+}
+
+function cleanWizardAnswer(value?: string): string | undefined {
+  const cleaned = value?.trim().replace(/\s+/g, " ");
+  return cleaned ? cleaned : undefined;
+}
+
+function firstScreenDefault(brief?: BossBrief): string {
+  return (
+    brief?.mustHaves.find((item) => /首屏|第一眼|打开后/.test(item))?.replace(/^首屏优先呈现[：:]/, "").replace(/。$/, "") ??
+    brief?.acceptance.find((item) => /第一眼|打开后/.test(item))?.replace(/^打开后第一眼能看到[：:]/, "").replace(/。$/, "") ??
+    "最重要的业务状态和下一步动作"
+  );
+}
+
+function passConditionDefault(brief?: BossBrief): string {
+  return (
+    brief?.acceptance.find((item) => /首版通过条件|验收标准/.test(item))?.replace(/^首版通过条件[：:]/, "").replace(/。$/, "") ??
+    "老板打开后能判断是否满意，并知道下一步怎么处理"
+  );
 }
 
 async function launchFromBossBrief(inputValue: BriefLaunchOptions): Promise<string | undefined> {
@@ -3231,6 +3461,14 @@ function isSetupGuideRequest(request: string): boolean {
   );
 }
 
+function isWizardRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:老板开工向导|开工向导|业务开工向导|产品开工向导|老板向导|问答开工|问完开工|问我然后开工|一步步问我|一步步带我开工|带我开工)/.test(normalized) ||
+    /^(?:wizard|coach|guide)$/.test(normalized)
+  );
+}
+
 function isResumeRequest(request: string): boolean {
   const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
   return (
@@ -3327,6 +3565,22 @@ function questionGoalFromNaturalRequest(request: string): string | undefined {
   const cleaned = (afterColon || request)
     .replace(/^(?:请|帮我|麻烦|给我)?/, "")
     .replace(/^(?:追问我几个问题|问我几个问题|帮我澄清需求|澄清需求|需求澄清|需求还差什么|这个需求清楚吗|需求清楚吗|还需要问什么|帮我把需求问清楚|把需求问清楚|需求问清楚|想法还差什么|产品还差什么|questions|question|clarify|ask)[：:\s]*/i, "")
+    .replace(/^(?:关于|围绕)?(?:我的)?(?:需求|想法|产品|业务目标)[：:\s]*/i, "")
+    .trim();
+  if (!cleaned || cleaned === request.trim() || /^(?:看一下|查看|显示|打开|是什么|呢|吗|吧)?$/.test(cleaned)) {
+    return undefined;
+  }
+  return cleaned;
+}
+
+function wizardIdeaFromNaturalRequest(request: string): string | undefined {
+  if (!isWizardRequest(request)) {
+    return undefined;
+  }
+  const afterColon = request.split(/[：:]/).slice(1).join(":").trim();
+  const cleaned = (afterColon || request)
+    .replace(/^(?:请|帮我|麻烦|给我)?/, "")
+    .replace(/^(?:打开|进入|启动|运行|开始)?(?:老板开工向导|开工向导|业务开工向导|产品开工向导|老板向导|问答开工|问完开工|问我然后开工|一步步问我|一步步带我开工|带我开工|wizard|coach|guide)[：:\s]*/i, "")
     .replace(/^(?:关于|围绕)?(?:我的)?(?:需求|想法|产品|业务目标)[：:\s]*/i, "")
     .trim();
   if (!cleaned || cleaned === request.trim() || /^(?:看一下|查看|显示|打开|是什么|呢|吗|吧)?$/.test(cleaned)) {

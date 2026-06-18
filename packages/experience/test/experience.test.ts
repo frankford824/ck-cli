@@ -36,6 +36,7 @@ describe("experience", () => {
 
     expect(text).toContain("中文开发管家");
     expect(text).toContain("ccli home");
+    expect(text).toContain("ccli wizard");
     expect(text).toContain("ccli ready");
     expect(text).toContain("ccli setup");
     expect(text).toContain("ccli try");
@@ -55,6 +56,8 @@ describe("experience", () => {
     expect(text).toContain("ccli chat");
     expect(text).toContain("下一步怎么办");
     expect(text).toContain("试用一下");
+    expect(text).toContain("开工向导");
+    expect(text).toContain("一步步问我");
     expect(text).toContain("帮我澄清需求");
     expect(text).toContain("我的回答是");
     expect(text).toContain("按简报生成首版");
