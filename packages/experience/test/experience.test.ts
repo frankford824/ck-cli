@@ -16,6 +16,7 @@ import {
   hardwareSchema,
   healthSummary,
   installSuccessCard,
+  plainHelpCard,
   renderAcceptanceGuide,
   renderBossApprovalReceipt,
   renderBossBrief,
@@ -24,6 +25,7 @@ import {
   renderBossReportCard,
   renderNextActions,
   renderInstallSuccess,
+  renderPlainHelp,
   renderResumeGuide,
   renderSetupGuide,
   renderStarterIdeas,
@@ -82,6 +84,21 @@ describe("experience", () => {
     expect(text).not.toContain("```");
     expect(publicData).not.toContain("\"command\"");
     expect(publicData).not.toContain("\"path\"");
+  });
+
+  it("renders plain help as next things to say instead of command listings", () => {
+    const text = renderPlainHelp(plainHelpCard());
+
+    expect(text).toContain("ccli 使用帮助");
+    expect(text).toContain("第一次打开");
+    expect(text).toContain("开始做产品");
+    expect(text).toContain("看效果和继续改");
+    expect(text).toContain("下一步怎么办");
+    expect(text).not.toContain("Usage:");
+    expect(text).not.toContain("Commands:");
+    expect(text).not.toContain("Options:");
+    expect(text).not.toMatch(/\bccli\s+[a-z]/i);
+    expect(text).not.toContain("```");
   });
 
   it("renders starter ideas for boss users", () => {

@@ -14,7 +14,9 @@ import {
   readHarnessProgress,
   renderHarnessMethod,
   analyzeHarnessPlaybook,
+  analyzeHarnessLoopReadiness,
   renderHarnessPlaybook,
+  renderHarnessLoopReadiness,
   renderHarnessProfile,
   renderHarnessReadiness,
   renderHarnessRoadmap,
@@ -287,6 +289,81 @@ describe("harness", () => {
       expect(rendered).toContain("复利层");
       expect(rendered).toContain("把踩坑变成下一轮输入");
       expect(rendered).not.toMatch(/\bccli\s/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("gates unattended loops until harness guardrails and a passed run exist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-loop-"));
+    try {
+      await writeFile(join(root, "AGENTS.md"), "项目固定事实：所有用户可见结果都用中文。\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness", "rules"), { recursive: true });
+      await writeFile(join(root, ".ccli", "harness", "rules", "safety.md"), "高影响动作必须确认。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "rules", "product.md"), "普通用户只看中文产品结果。\n", "utf8");
+
+      const thinContext = await loadHarnessContext(root);
+      const blocked = analyzeHarnessLoopReadiness(thinContext);
+      expect(blocked.level).toBe("blocked");
+      expect(blocked.canRunUnattended).toBe(false);
+      expect(renderHarnessLoopReadiness(blocked)).toContain("暂不适合自动循环");
+
+      await writeFile(join(root, ".ccli", "harness", "init-check.json"), "{\"steps\":[\"先验证当前状态\"]}\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "loop-gate.json"), "{\"purpose\":\"自动循环前先检查\"}\n", "utf8");
+      await mkdir(join(root, ".ccli", "skills"), { recursive: true });
+      await writeFile(join(root, ".ccli", "skills", "qa.md"), "检查目标、风险和验证覆盖。\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness", "agents"), { recursive: true });
+      await writeFile(join(root, ".ccli", "harness", "agents", "reviewer.md"), "独立检查目标、风险和验证。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "agents", "eval-runner.md"), "整理验证反馈。\n", "utf8");
+      await writeFile(
+        join(root, ".ccli", "harness", "settings.json"),
+        JSON.stringify({
+          permissions: {
+            autoApprove: ["读取项目说明"],
+            confirm: ["推送分支"],
+            deny: ["无确认发布"]
+          }
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(root, ".ccli", "harness", "hooks.json"),
+        JSON.stringify({
+          hooks: [
+            { id: "dangerous-action-gate", when: "before-tool", description: "执行前拦截危险动作", blocks: true },
+            { id: "quality-feedback", when: "after-edit", description: "改动后运行验证" },
+            { id: "review-before-ship", when: "after-validation", description: "交付前复核", blocks: true }
+          ]
+        }),
+        "utf8"
+      );
+      await recordHarnessLesson(root, {
+        symptom: "验证失败后不要继续扩大范围",
+        impact: "循环会放大错误。",
+        prevention: "失败先回流修复，再重新验证。"
+      });
+      await writeHarnessProgress(
+        root,
+        progressSnapshot({
+          task: "首版产品",
+          currentStage: "review",
+          summary: "已经完成一轮验证。",
+          nextAction: "继续独立审查。",
+          validation: "passed"
+        })
+      );
+
+      const readyContext = await loadHarnessContext(root);
+      const progress = await readHarnessProgress(root);
+      const ready = analyzeHarnessLoopReadiness(readyContext, progress);
+      const rendered = renderHarnessLoopReadiness(ready);
+
+      expect(ready.level).toBe("ready");
+      expect(ready.canRunUnattended).toBe(true);
+      expect(rendered).toContain("可以小范围自动循环");
+      expect(rendered).toContain("验证通过、独立审查通过");
+      expect(rendered).not.toMatch(/\bccli\s/);
+      expect(rendered).not.toContain(".ccli/");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

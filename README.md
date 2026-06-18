@@ -15,7 +15,7 @@
 - 借鉴 open-design：新项目默认生成 `DESIGN.md`、`.ccli/skills/` 和 `.ccli/design-systems/`。
 - 借鉴 Anthropic frontend-design skill：新项目默认带中文前端设计技能，开发代理会读取设计契约和技能约束。
 - 已有项目可用 `ccli skills` 一键补齐中文产品追问、质量审查和前端设计技能。
-- 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环、`.ccli/progress.json` 进度落盘和失败经验库。
+- 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环、`.ccli/progress.json` 进度落盘、失败经验库和自动循环就绪检查。
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - 直接运行 `ccli` 就进入老板开箱驾驶舱；`ccli home` 也可打开同一首页，查看当前状态、最建议动作、可选动作和常见模板。
@@ -152,6 +152,7 @@ ccli harness
 ccli harness --init
 ccli harness --method
 ccli harness --playbook
+ccli harness --loop
 ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
 ccli "取消"
@@ -537,6 +538,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - `ccli harness` 会给出中文健康度、已具备能力、缺口和下一步建议。
 - `ccli harness --playbook` 会把 Harness Engineering 变成当天可执行剧本：开工前定边界、阶段工具收敛、验证失败回流、独立复核、结束写现场和经验沉淀。
 - `ccli harness --roadmap` 会按 14 步路线评估当前项目：哪些已具备、哪些先补、哪些后续再做。
+- `ccli harness --loop` 会先判断项目是否适合自动循环：范围、节奏、完成标准、必须停下来的情况都会用中文说明。
 - `ccli learn` 会把一句“以后不要再这样”沉淀成项目经验。
 - 所有原始工具结果和模型细节仍进入 `.ccli/audit/*.jsonl`。
 
@@ -578,6 +580,12 @@ ccli harness --playbook
 ccli harness --roadmap
 ```
 
+检查是否适合自动循环：
+
+```bash
+ccli harness --loop
+```
+
 也可以直接说：
 
 ```bash
@@ -586,6 +594,7 @@ ccli "检查当前驾驭系统状态"
 ccli "驾驭系统怎么用"
 ccli "给我驾驭实操剧本"
 ccli "查看驾驭路线图"
+ccli "检查自动循环是否就绪"
 ```
 
 沉淀一条经验：
