@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,11 @@ describe("TaskOrchestrator", () => {
 
       expect(result.branch).toContain("ccli/");
       expect(result.build.usedModel).toBe(false);
+      expect(result.build.changedFiles).toContain("src/App.tsx");
       expect(events.join("\n")).toContain("正在实现功能");
+      await expect(readFile(join(cwd, "src", "App.tsx"), "utf8").then((content) => content)).resolves.toContain(
+        "登录页面"
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
