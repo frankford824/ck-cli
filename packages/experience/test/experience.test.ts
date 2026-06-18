@@ -148,7 +148,8 @@ describe("experience", () => {
 
     expect(text).toContain("建议先打开最近产品");
     expect(text).toContain("直接说");
-    expect(text).toContain("也可以执行");
+    expect(text).not.toContain("也可以执行");
+    expect(text).not.toContain("ccli open");
   });
 
   it("renders a boss home without exposing commands", () => {
