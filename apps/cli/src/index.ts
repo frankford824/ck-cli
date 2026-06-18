@@ -1863,8 +1863,36 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
   }
 
   if (isProductCreationRequest(utterance)) {
+    const shouldCreate = await shouldCreateProductFromNaturalRequest(inputValue.cwd, utterance);
+    if (!shouldCreate) {
+      const workspace = await resolveCurrentProductWorkspace(inputValue.cwd);
+      const productName = workspace ? productWorkspaceName(workspace) : "当前产品";
+      const command = `ccli do ${shellQuote(utterance)}`;
+      const actions = [
+        commandAction("update-current-product", "修改当前产品", command, `会在「${productName}」里按这句话继续改。`, true),
+        utteranceAction("new-product", "新开一个产品", `新建一个${projectNameFromIdea(utterance)}`),
+        utteranceAction("next", "下一步怎么办", "下一步怎么办")
+      ];
+      return finalize(createHardwareResponse(
+        createExperienceEvent({
+          surface: "hardware",
+          tone: "asking",
+          say: `我理解这是要继续修改${productName}。如果确认，可以按这句话改当前产品。`,
+          screen: `${productName}\n需求：${utterance}\n确认后会修改当前产品，不会新建项目。`,
+          choices: choicesFromActions(actions),
+          actions
+        }),
+        {
+          kind: "update-current-product",
+          requirement: utterance,
+          productName,
+          command
+        }
+      ));
+    }
+
     const name = projectNameFromIdea(utterance);
-    const command = `ccli go ${JSON.stringify(utterance)}`;
+    const command = `ccli go ${shellQuote(utterance)}`;
     const actions = [
       commandAction("confirm-create-product", "确认生成首版产品", command, `将创建「${name}」并开始生成首版。`, true),
       utteranceAction("ideas", "换一个模板", "给我几个产品模板"),
@@ -2184,15 +2212,16 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
-  if (isProductCreationRequest(request)) {
-    print(inputValue.renderer.render({ type: "info", message: "已识别为新产品目标，开始一键生成并打开预览。" }));
+  if (await shouldCreateProductFromNaturalRequest(inputValue.cwd, request)) {
+    const preview = input.isTTY;
+    print(inputValue.renderer.render({ type: "info", message: preview ? "已识别为新产品目标，开始一键生成并打开预览。" : "已识别为新产品目标，开始一键生成首版。" }));
     await createProductFromIdea({
       cwd: inputValue.cwd,
       idea: request,
       install: false,
-      preview: true,
+      preview,
       previewAutoInstall: true,
-      previewOpenBrowser: true,
+      previewOpenBrowser: preview,
       previewHost: "127.0.0.1",
       previewPort: 5173,
       withPr: false,
@@ -3393,7 +3422,11 @@ async function openCurrentPreview(inputValue: { cwd: string; renderer: ProductRe
 }
 
 function isProjectListRequest(request: string): boolean {
-  return /(?:查看|看看|列出|显示|管理).*(?:我的)?(?:产品|项目|应用|系统|列表)/.test(request) || /我的(?:产品|项目|应用|系统)/.test(request);
+  return (
+    /(?:查看|看看|列出|显示).*(?:我的)?(?:产品|项目|应用|系统|列表)/.test(request) ||
+    /管理我的(?:产品|项目|应用|系统)/.test(request) ||
+    /我的(?:产品|项目|应用|系统)/.test(request)
+  );
 }
 
 function isProjectOpenRequest(request: string): boolean {
@@ -3788,8 +3821,25 @@ function lessonFromNaturalRequest(request: string): string {
 }
 
 function isProductCreationRequest(request: string): boolean {
-  return /(?:一键)?(?:做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个)/.test(request) &&
+  return /(?:一键)?(?:做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个)/.test(request) &&
     /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|客户|订单|库存|页面|小程序|CRM|crm)/.test(request);
+}
+
+function isExplicitNewProductRequest(request: string): boolean {
+  return (
+    /(?:新建|新开|另起|从零|重新)(?:一个|个)?.*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm)/.test(request) ||
+    /(?:做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个).*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm)/.test(request)
+  );
+}
+
+async function shouldCreateProductFromNaturalRequest(cwd: string, request: string): Promise<boolean> {
+  if (!isProductCreationRequest(request)) {
+    return false;
+  }
+  if (isExplicitNewProductRequest(request)) {
+    return true;
+  }
+  return !(await resolveCurrentProductWorkspace(cwd));
 }
 
 function projectKeyFromNaturalRequest(request: string): string | undefined {
@@ -4228,6 +4278,17 @@ function projectForCwd(projects: KnownProject[], cwd: string): KnownProject | un
 }
 
 async function resolveProductWorkspace(cwd: string): Promise<ProductWorkspace | undefined> {
+  const current = await resolveCurrentProductWorkspace(cwd);
+  if (current) {
+    return current;
+  }
+
+  const projects = await readProjectRegistry();
+  const latest = projects.find((project) => existsSync(project.path));
+  return latest ? { cwd: latest.path, project: latest, usedLatest: true } : undefined;
+}
+
+async function resolveCurrentProductWorkspace(cwd: string): Promise<ProductWorkspace | undefined> {
   const projects = await readProjectRegistry();
   const current = projectForCwd(projects, cwd);
   if (current) {
@@ -4235,12 +4296,7 @@ async function resolveProductWorkspace(cwd: string): Promise<ProductWorkspace | 
   }
 
   const readiness = await previewReadiness(cwd).catch(() => undefined);
-  if (readiness?.canPreview) {
-    return { cwd, usedLatest: false };
-  }
-
-  const latest = projects.find((project) => existsSync(project.path));
-  return latest ? { cwd: latest.path, project: latest, usedLatest: true } : undefined;
+  return readiness?.canPreview ? { cwd, usedLatest: false } : undefined;
 }
 
 function productWorkspaceName(workspace: ProductWorkspace): string {
@@ -4344,7 +4400,7 @@ function projectNameFromIdea(idea: string): string {
   const firstClause = idea
     .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
     .split(/[，。；;,.!?！？\n]/)[0]
-    .replace(/^(帮我|请|我想|我要|想要|需要|做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|做|创建|开发|生成|搭建)/, "")
+    .replace(/^(帮我|请|我想|我要|想要|需要|做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|另起一个|另起个|从零做一个|从零做个|做|创建|开发|生成|搭建|新建|新开|另起)/, "")
     .replace(/[^\p{L}\p{N}\u4e00-\u9fff_-]+/gu, "")
     .slice(0, 18);
   return firstClause || `我的应用-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
