@@ -253,6 +253,8 @@ ccli "继续上次任务"
 ccli "打开客户管理"
 ```
 
+即使当前不在产品目录里，`ccli preview`、`ccli accept`、`ccli revise` 和 `ccli finish` 也会优先接上当前产品；当前目录不是产品时，会自动接最近做过的产品。
+
 如果想连续沟通：
 
 ```bash

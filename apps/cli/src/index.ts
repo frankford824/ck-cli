@@ -373,7 +373,13 @@ program
         return;
       }
 
-      const readiness = await previewReadiness(cwd);
+      const workspace = await resolveProductWorkspace(cwd);
+      const targetCwd = workspace?.cwd ?? cwd;
+      if (workspace?.usedLatest) {
+        print(renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+      }
+
+      const readiness = await previewReadiness(targetCwd);
       if (!readiness.canPreview) {
         print(renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
         return;
@@ -384,7 +390,7 @@ program
           print(renderer.render({ type: "risk", message: "当前项目还没有安装运行所需内容。你可以让 ccli 自动准备后再预览。", severity: "warning" }));
           return;
         }
-        await ensureDependenciesForPreview({ cwd, renderer, yes });
+        await ensureDependenciesForPreview({ cwd: targetCwd, renderer, yes });
       }
 
       if (options.check) {
@@ -393,7 +399,7 @@ program
       }
 
       await startPreviewServer({
-        cwd,
+        cwd: targetCwd,
         renderer,
         host: options.host ?? "127.0.0.1",
         port,
@@ -743,6 +749,7 @@ program
         renderer,
         yes,
         merge: true,
+        useLatestProduct: true,
         method: options.method,
         title: "老板验收通过",
         body: "老板已确认当前效果满意，ccli 自动执行审查、交付和合并。"
@@ -1362,7 +1369,9 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
   }
 
   if (isCurrentPreviewRequest(utterance) || isCurrentPreviewCheckRequest(utterance)) {
-    const readiness = await previewReadiness(inputValue.cwd);
+    const workspace = await resolveProductWorkspace(inputValue.cwd);
+    const targetCwd = workspace?.cwd ?? inputValue.cwd;
+    const readiness = await previewReadiness(targetCwd);
     const canOpen = readiness.canPreview && readiness.hasDependencies;
     const actions = readiness.canPreview
       ? [
@@ -1378,7 +1387,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         surface: "hardware",
         tone: readiness.canPreview ? "asking" : "warning",
         say: canOpen ? "当前产品可以打开。如果确认，可以启动本地预览。" : readiness.message,
-        screen: canOpen ? "当前产品可以打开。\n确认后会启动本地预览。" : readiness.message,
+        screen: canOpen ? `当前产品可以打开。\n${workspace?.usedLatest ? `已接上最近产品：${productWorkspaceName(workspace)}。\n` : ""}确认后会启动本地预览。` : readiness.message,
         choices: choicesFromActions(actions),
         actions
       }),
@@ -1574,6 +1583,7 @@ async function runNaturalLanguageIntent(inputValue: {
       renderer: inputValue.renderer,
       yes: inputValue.yes,
       merge: true,
+      useLatestProduct: true,
       title: "老板验收通过",
       body: "老板已确认当前效果满意，ccli 自动执行审查、交付和合并。"
     });
@@ -1749,8 +1759,10 @@ async function runSetupWizard(inputValue: {
 }
 
 async function buildAcceptanceGuide(cwd: string) {
-  const [projects, readiness] = await Promise.all([readProjectRegistry(), previewReadiness(cwd).catch(() => undefined)]);
-  const current = projectForCwd(projects, cwd);
+  const [projects, workspace] = await Promise.all([readProjectRegistry(), resolveProductWorkspace(cwd)]);
+  const targetCwd = workspace?.cwd ?? cwd;
+  const readiness = await previewReadiness(targetCwd).catch(() => undefined);
+  const current = workspace?.project ?? projectForCwd(projects, targetCwd);
   const project = current ?? projects[0];
   return createAcceptanceGuide({
     productName: current?.name ?? (readiness?.canPreview ? "当前产品" : project?.name),
@@ -2086,14 +2098,22 @@ async function handleRevisionRequest(inputValue: {
     return;
   }
 
+  const workspace = await resolveProductWorkspace(inputValue.cwd);
+  if (!workspace) {
+    print(inputValue.renderer.render({ type: "risk", message: "还没有找到可修改的产品。可以先说“试用一下”或“给我几个产品模板”。", severity: "warning" }));
+    return;
+  }
   print(inputValue.renderer.render({ type: "info", message: "已收到验收修改意见，开始继续修改当前产品。" }));
+  if (workspace.usedLatest) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+  }
   await runRequirement({
-    cwd: inputValue.cwd,
+    cwd: workspace.cwd,
     expert: inputValue.expert,
     yes: inputValue.yes,
     requirement: `根据老板验收反馈继续修改当前产品：${feedback}`
   });
-  print(renderAcceptanceGuide(await buildAcceptanceGuide(inputValue.cwd)));
+  print(renderAcceptanceGuide(await buildAcceptanceGuide(workspace.cwd)));
 }
 
 async function runDeliveryFlow(inputValue: {
@@ -2104,25 +2124,36 @@ async function runDeliveryFlow(inputValue: {
   body?: string;
   merge?: boolean;
   method?: string;
+  useLatestProduct?: boolean;
 }): Promise<void> {
+  const workspace = inputValue.useLatestProduct ? await resolveProductWorkspace(inputValue.cwd) : undefined;
+  if (inputValue.useLatestProduct && !workspace) {
+    print(inputValue.renderer.render({ type: "risk", message: "还没有找到可交付的产品。可以先说“试用一下”或“给我几个产品模板”。", severity: "warning" }));
+    return;
+  }
+  const cwd = workspace?.cwd ?? inputValue.cwd;
+  if (workspace?.usedLatest) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+  }
+
   const confirmed = inputValue.yes || (await confirmChinese("这会发送当前成果并准备团队审查入口。是否继续？"));
   if (!confirmed) {
     print(inputValue.renderer.render({ type: "risk", message: "已取消交付动作。", severity: "warning" }));
     return;
   }
 
-  const config = await loadCcliConfig(inputValue.cwd);
+  const config = await loadCcliConfig(cwd);
   const registry = createDefaultProviderRegistry(config);
-  const audit = await AuditSession.create({ cwd: inputValue.cwd, task: "自动交付" });
+  const audit = await AuditSession.create({ cwd, task: "自动交付" });
   const git = new GitTool();
   const github = new GitHubTool();
 
   print(inputValue.renderer.progress("save", "正在发送当前成果。"));
-  await git.pushCurrent({ cwd: inputValue.cwd, audit, confirmed: true });
+  await git.pushCurrent({ cwd, audit, confirmed: true });
 
   print(inputValue.renderer.progress("review", "正在进行独立审查。"));
   const review = await new ReviewerAgent().review({
-    cwd: inputValue.cwd,
+    cwd,
     audit,
     reviewer: registry.forRole("reviewer", config)
   });
@@ -2130,7 +2161,7 @@ async function runDeliveryFlow(inputValue: {
   const title = inputValue.title ?? "ccli 自动交付";
   const body = inputValue.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。";
   const pr = await github.createOrFindDraftPr(
-    { cwd: inputValue.cwd, audit, confirmed: true },
+    { cwd, audit, confirmed: true },
     {
       title,
       body,
@@ -2144,7 +2175,7 @@ async function runDeliveryFlow(inputValue: {
   }
 
   if (pr.number) {
-    const comment = await github.postReviewSummary({ cwd: inputValue.cwd, audit, confirmed: true }, pr.number, reviewComment(title, review));
+    const comment = await github.postReviewSummary({ cwd, audit, confirmed: true }, pr.number, reviewComment(title, review));
     print(inputValue.renderer.render({ type: comment.posted ? "done" : "risk", message: comment.message, severity: comment.posted ? "success" : "warning" }));
   }
 
@@ -2164,7 +2195,7 @@ async function runDeliveryFlow(inputValue: {
   }
 
   if (pr.draft) {
-    const ready = await github.markReadyForReview({ cwd: inputValue.cwd, audit, confirmed: true }, pr.number);
+    const ready = await github.markReadyForReview({ cwd, audit, confirmed: true }, pr.number);
     print(inputValue.renderer.render({ type: ready.posted ? "done" : "risk", message: ready.message, severity: ready.posted ? "success" : "warning" }));
     if (!ready.posted) {
       return;
@@ -2178,7 +2209,7 @@ async function runDeliveryFlow(inputValue: {
   }
 
   const merge = await github.mergePr(
-    { cwd: inputValue.cwd, audit, confirmed: true },
+    { cwd, audit, confirmed: true },
     {
       number: pr.number,
       method: parseMergeMethod(inputValue.method),
@@ -2263,7 +2294,12 @@ async function openKnownProject(inputValue: {
 }
 
 async function checkCurrentPreview(inputValue: { cwd: string; renderer: ProductRenderer }): Promise<void> {
-  const readiness = await previewReadiness(inputValue.cwd);
+  const workspace = await resolveProductWorkspace(inputValue.cwd);
+  const targetCwd = workspace?.cwd ?? inputValue.cwd;
+  if (workspace?.usedLatest) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+  }
+  const readiness = await previewReadiness(targetCwd);
   if (!readiness.canPreview) {
     print(inputValue.renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
     return;
@@ -2275,16 +2311,21 @@ async function checkCurrentPreview(inputValue: { cwd: string; renderer: ProductR
 }
 
 async function openCurrentPreview(inputValue: { cwd: string; renderer: ProductRenderer; yes: boolean }): Promise<void> {
-  const readiness = await previewReadiness(inputValue.cwd);
+  const workspace = await resolveProductWorkspace(inputValue.cwd);
+  const targetCwd = workspace?.cwd ?? inputValue.cwd;
+  if (workspace?.usedLatest) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+  }
+  const readiness = await previewReadiness(targetCwd);
   if (!readiness.canPreview) {
     print(inputValue.renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
     return;
   }
   if (!readiness.hasDependencies) {
-    await ensureDependenciesForPreview({ cwd: inputValue.cwd, renderer: inputValue.renderer, yes: inputValue.yes });
+    await ensureDependenciesForPreview({ cwd: targetCwd, renderer: inputValue.renderer, yes: inputValue.yes });
   }
   await startPreviewServer({
-    cwd: inputValue.cwd,
+    cwd: targetCwd,
     renderer: inputValue.renderer,
     host: "127.0.0.1",
     port: 5173,
@@ -2519,6 +2560,12 @@ interface KnownProject {
   createdAt: string;
   updatedAt: string;
   lastOpenedAt?: string;
+}
+
+interface ProductWorkspace {
+  cwd: string;
+  project?: KnownProject;
+  usedLatest: boolean;
 }
 
 async function previewReadiness(cwd: string): Promise<PreviewReadiness> {
@@ -2894,6 +2941,26 @@ function projectForCwd(projects: KnownProject[], cwd: string): KnownProject | un
     const projectPath = resolve(project.path);
     return currentPath === projectPath || currentPath.startsWith(`${projectPath}/`);
   });
+}
+
+async function resolveProductWorkspace(cwd: string): Promise<ProductWorkspace | undefined> {
+  const projects = await readProjectRegistry();
+  const current = projectForCwd(projects, cwd);
+  if (current) {
+    return { cwd: current.path, project: current, usedLatest: false };
+  }
+
+  const readiness = await previewReadiness(cwd).catch(() => undefined);
+  if (readiness?.canPreview) {
+    return { cwd, usedLatest: false };
+  }
+
+  const latest = projects.find((project) => existsSync(project.path));
+  return latest ? { cwd: latest.path, project: latest, usedLatest: true } : undefined;
+}
+
+function productWorkspaceName(workspace: ProductWorkspace): string {
+  return workspace.project?.name ?? projectNameFromCwd(workspace.cwd);
 }
 
 function projectSummary(project: KnownProject, index: number) {
