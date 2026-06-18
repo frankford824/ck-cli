@@ -225,6 +225,7 @@ export function welcomeCard(): WelcomeCard {
     summary: "你只需要说清楚想要的结果，ccli 负责规划、开发、验证、审查和交付。",
     nextActions: [
       "开箱首页：ccli home",
+      "老板开工向导：ccli wizard",
       "开箱准备：ccli ready",
       "继续上次任务：ccli resume",
       "首次设置：ccli setup",
@@ -249,6 +250,8 @@ export function welcomeCard(): WelcomeCard {
     ],
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
+      "开工向导：做一个客户管理系统，能记录跟进和提醒",
+      "一步步问我，然后按回答开工",
       "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒",
       "我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒",
       "按简报生成首版",

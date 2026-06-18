@@ -19,6 +19,7 @@
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli home` 提供老板开箱驾驶舱：当前状态、最建议动作、可选动作和常见模板放在一个中文首页。
+- `ccli wizard` 提供老板开工向导：问 4 个业务问题，自动沉淀业务简报，并可确认后直接生成首版。
 - `ccli questions` 提供老板需求追问卡：把模糊想法变成 3 个普通用户能回答的问题。
 - `ccli answers` 会把老板对追问卡的回答直接沉淀成业务简报。
 - `ccli brief` 提供老板业务简报：把一句话想法整理成目标、使用者、首版范围和验收标准。
@@ -51,6 +52,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli home
+ccli wizard "做一个客户管理系统，能记录跟进和提醒" --no-launch
 ccli questions "做一个客户管理系统，能记录跟进和提醒"
 ccli answers "销售每天用；第一眼看待跟进客户；首版能新增客户并提醒"
 ccli launch --no-preview
@@ -173,6 +175,26 @@ ccli hardware "下一步怎么办" --json
 ## 老板上手方式
 
 安装后直接输入：
+
+```bash
+ccli wizard
+```
+
+它会像助理一样问 4 个业务问题：想做什么、谁每天用、第一眼看什么、怎样算首版通过。回答后会自动保存业务简报；输入 `yes` 后可以直接生成首版。
+
+如果已经有一句话想法，也可以直接带上：
+
+```bash
+ccli wizard "做一个客户管理系统，能记录跟进和提醒"
+```
+
+如果只想先保存简报，不马上开工：
+
+```bash
+ccli wizard "做一个客户管理系统，能记录跟进和提醒" --no-launch
+```
+
+如果想先看当前状态和可选动作：
 
 ```bash
 ccli home
@@ -575,6 +597,7 @@ ccli harness --expert
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
+- 老板开工向导，可用 `ccli hardware "开工向导：做一个客户管理系统" --json` 获取终端向导动作
 - 老板需求追问卡，可用 `ccli questions --json` 读取
 - 老板回答沉淀，可用 `ccli answers --json` 读取
 - 按业务简报开工，可用 `ccli hardware "按简报生成首版" --json` 获取确认动作
