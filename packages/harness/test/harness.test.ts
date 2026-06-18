@@ -24,13 +24,18 @@ describe("harness", () => {
       await writeFile(join(root, "CLAUDE.md"), "不要把过程术语直接暴露给普通用户。\n", "utf8");
       await mkdir(join(root, ".ccli", "harness", "rules"), { recursive: true });
       await writeFile(join(root, ".ccli", "harness", "rules", "safety.md"), "高影响动作必须确认。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "feature-list.json"), "{\"features\":[]}\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "init-check.json"), "{\"steps\":[\"先验证当前状态\"]}\n", "utf8");
 
       const context = await loadHarnessContext(root);
       const prompt = harnessPrompt(context, "plan");
 
       expect(context.standingFacts).toHaveLength(2);
+      expect(context.artifacts).toHaveLength(2);
       expect(prompt).toContain("整理中文产品方案");
       expect(prompt).toContain("项目固定事实");
+      expect(prompt).toContain("执行清单");
+      expect(prompt).toContain("先验证当前状态");
       expect(prompt).toContain("不展示代码、命令、路径、堆栈");
       expect(prompt).toContain("生成和评估分离");
       expect(renderHarnessSummary(context)).toContain("驾驭系统已加载");
@@ -79,6 +84,8 @@ describe("harness", () => {
 
       expect(report.score).toBeLessThan(100);
       expect(report.gaps).toContain("安全和产品规则");
+      expect(report.gaps).toContain("结构化任务清单");
+      expect(report.gaps).toContain("开工基线检查");
       expect(report.gaps).toContain("失败经验库");
       expect(report.gaps).toContain("短期进度落盘");
       expect(rendered).toContain("驾驭系统健康度");

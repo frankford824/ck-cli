@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
@@ -46,7 +46,7 @@ import { ProductRenderer } from "@ccli/product-ui";
 import { createDefaultProviderRegistry, loadCcliConfig, type CcliConfig } from "@ccli/providers";
 import { ReviewerAgent } from "@ccli/review";
 import { AuditSession, readLatestAuditSummary, readState, type CcliState } from "@ccli/session";
-import { installHarnessSkills } from "@ccli/templates";
+import { installHarnessScaffold, installHarnessSkills } from "@ccli/templates";
 import { createTemplateProject, GitHubTool, GitTool, ProjectTool } from "@ccli/tools";
 
 const program = new Command();
@@ -536,11 +536,22 @@ program
 program
   .command("harness")
   .description("查看当前项目的智能体驾驭系统")
+  .option("--init", "为当前项目补齐完整驾驭支架")
   .option("--method", "查看驾驭方法怎么用")
-  .action(async (options: { method?: boolean }) => {
+  .option("--overwrite", "覆盖已有支架文件")
+  .action(async (options: { init?: boolean; method?: boolean; overwrite?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
       if (options.method) {
         print(renderHarnessMethod());
+        return;
+      }
+      if (options.init) {
+        await initializeHarnessForProject({
+          cwd,
+          renderer,
+          expert,
+          overwrite: Boolean(options.overwrite)
+        });
         return;
       }
       const context = await loadHarnessContext(cwd);
@@ -1304,6 +1315,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isHarnessInitRequest(request)) {
+    await initializeHarnessForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
+    return true;
+  }
+
   if (isSkillInstallRequest(request)) {
     await installSkillsForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
     return true;
@@ -1544,6 +1560,33 @@ async function installSkillsForProject(inputValue: { cwd: string; renderer: Prod
 
   const context = await loadHarnessContext(inputValue.cwd);
   const progress = await readHarnessProgress(inputValue.cwd);
+  print(renderHarnessReadiness(analyzeHarnessReadiness(context, progress)));
+
+  if (inputValue.expert) {
+    if (result.written.length) {
+      print(`已写入：${result.written.join("、")}`);
+    }
+    if (result.skipped.length) {
+      print(`已保留：${result.skipped.join("、")}`);
+    }
+  }
+}
+
+async function initializeHarnessForProject(inputValue: { cwd: string; renderer: ProductRenderer; expert: boolean; overwrite: boolean }): Promise<void> {
+  const result = await installHarnessScaffold({
+    root: inputValue.cwd,
+    overwrite: inputValue.overwrite,
+    projectName: projectNameFromCwd(inputValue.cwd)
+  });
+  if (result.written.length) {
+    print(inputValue.renderer.render({ type: "done", message: `已搭好 ${result.written.length} 个驾驭支架文件。`, severity: "success" }));
+  } else {
+    print(inputValue.renderer.render({ type: "info", message: "当前项目已经具备完整驾驭支架。" }));
+  }
+
+  const context = await loadHarnessContext(inputValue.cwd);
+  const progress = await readHarnessProgress(inputValue.cwd);
+  print(renderHarnessSummary(context));
   print(renderHarnessReadiness(analyzeHarnessReadiness(context, progress)));
 
   if (inputValue.expert) {
@@ -1885,6 +1928,11 @@ function isIdeaCatalogRequest(request: string): boolean {
   return /(?:给我|看看|查看|推荐|列出|有什么).*(?:产品)?(?:模板|场景|灵感|案例|能做什么|可以做什么)/.test(request) ||
     /(?:产品)?(?:模板|场景|灵感|案例).*(?:给我|看看|查看|推荐|列出)/.test(request) ||
     /不知道(?:做|开发|创建)什么/.test(request);
+}
+
+function isHarnessInitRequest(request: string): boolean {
+  return /(?:初始化|补齐|搭建|启用|安装).*(?:驾驭系统|harness|智能体支架|开发支架|项目指南|项目规则)/i.test(request) ||
+    /(?:驾驭系统|harness|智能体支架|开发支架).*(?:初始化|补齐|搭建|启用|安装)/i.test(request);
 }
 
 function ideaKeyFromNaturalRequest(request: string): string | undefined {
@@ -2447,6 +2495,10 @@ function projectNameFromIdea(idea: string): string {
     .replace(/[^\p{L}\p{N}\u4e00-\u9fff_-]+/gu, "")
     .slice(0, 18);
   return firstClause || `我的应用-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
+}
+
+function projectNameFromCwd(cwd: string): string {
+  return basename(resolve(cwd)) || "当前项目";
 }
 
 async function resolveSetupProvider(
