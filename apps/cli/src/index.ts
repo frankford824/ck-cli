@@ -54,12 +54,14 @@ import {
 } from "@ccli/experience";
 import {
   analyzeHarnessReadiness,
+  analyzeHarnessRoadmap,
   loadHarnessContext,
   readHarnessProgress,
   recordHarnessLesson,
   renderHarnessMethod,
   renderHarnessProfile,
   renderHarnessReadiness,
+  renderHarnessRoadmap,
   renderHarnessSummary
 } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
@@ -788,11 +790,18 @@ program
   .description("查看当前项目的智能体驾驭系统")
   .option("--init", "为当前项目补齐完整驾驭支架")
   .option("--method", "查看驾驭方法怎么用")
+  .option("--roadmap", "查看 14 步驾驭路线图")
   .option("--overwrite", "覆盖已有支架文件")
-  .action(async (options: { init?: boolean; method?: boolean; overwrite?: boolean }) => {
+  .action(async (options: { init?: boolean; method?: boolean; roadmap?: boolean; overwrite?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
       if (options.method) {
         print(renderHarnessMethod());
+        return;
+      }
+      if (options.roadmap) {
+        const context = await loadHarnessContext(cwd);
+        const progress = await readHarnessProgress(cwd);
+        print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
         return;
       }
       if (options.init) {
@@ -2215,6 +2224,13 @@ async function runNaturalLanguageIntent(inputValue: {
 
   if (isHarnessInitRequest(request)) {
     await initializeHarnessForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
+    return true;
+  }
+
+  if (isHarnessRoadmapRequest(request)) {
+    const context = await loadHarnessContext(inputValue.cwd);
+    const progress = await readHarnessProgress(inputValue.cwd);
+    print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
     return true;
   }
 
@@ -3815,6 +3831,11 @@ function isUndoRequest(request: string): boolean {
 function isHarnessMethodRequest(request: string): boolean {
   return /(?:怎么|如何|方法|原理|介绍|说明|使用).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
     /(?:驾驭|harness|智能体支架|开发支架).*(?:怎么|如何|方法|原理|介绍|说明|使用)/i.test(request);
+}
+
+function isHarnessRoadmapRequest(request: string): boolean {
+  return /(?:路线图|14\s*步|十四步|路线|roadmap).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
+    /(?:驾驭|harness|智能体支架|开发支架).*(?:路线图|14\s*步|十四步|路线|roadmap)/i.test(request);
 }
 
 function isHarnessStatusRequest(request: string): boolean {

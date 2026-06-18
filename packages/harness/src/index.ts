@@ -138,10 +138,31 @@ export interface HarnessReadinessReport {
   items: HarnessReadinessItem[];
 }
 
+export type HarnessRoadmapTier = "foundation" | "control" | "compound";
+export type HarnessRoadmapStatus = "ready" | "next" | "later";
+
+export interface HarnessRoadmapStep {
+  number: number;
+  tier: HarnessRoadmapTier;
+  title: string;
+  status: HarnessRoadmapStatus;
+  userValue: string;
+  nextAction: string;
+}
+
+export interface HarnessRoadmapReport {
+  readyCount: number;
+  nextCount: number;
+  laterCount: number;
+  summary: string;
+  nextSteps: string[];
+  steps: HarnessRoadmapStep[];
+}
+
 const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness/README.md"];
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
-const ARTIFACT_FILES = [".ccli/harness/feature-list.json", ".ccli/harness/init-check.json"];
+const ARTIFACT_FILES = [".ccli/harness/feature-list.json", ".ccli/harness/init-check.json", ".ccli/harness/ROADMAP.md"];
 const AGENT_FILES = [".ccli/harness/agents/reviewer.md", ".ccli/harness/agents/eval-runner.md"];
 const SETTINGS_FILE = ".ccli/harness/settings.json";
 const HOOKS_FILE = ".ccli/harness/hooks.json";
@@ -275,6 +296,96 @@ export function renderHarnessMethod(): string {
   ].join("\n");
 }
 
+export function analyzeHarnessRoadmap(context: HarnessContext, progress?: HarnessProgress): HarnessRoadmapReport {
+  const hasHarnessFolder = Boolean(
+    context.rules.length || context.skills.length || context.artifacts.length || context.agents.length || context.settings || context.hookPlan
+  );
+  const hasHarnessGuide = context.standingFacts.some((document) => document.path === ".ccli/harness/README.md");
+  const hasPermissions = Boolean(
+    context.settings?.permissions?.autoApprove?.length &&
+      context.settings.permissions.confirm?.length &&
+      context.settings.permissions.deny?.length
+  );
+  const hasReviewer = context.agents.some((agent) => agent.path.endsWith("reviewer.md"));
+  const hasEvaluator = context.agents.some((agent) => agent.path.endsWith("eval-runner.md"));
+  const hasBlockingHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.blocks));
+  const hasQualityHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.id === "quality-feedback"));
+  const hasMemory = context.memories.length > 0 || Boolean(context.memory) || Boolean(progress);
+  const hasLessons = context.memories.some((document) => document.path === LESSONS_FILE);
+  const standingFactChars = context.standingFacts.reduce((sum, document) => sum + document.content.length, 0);
+  const compactStandingFacts = context.standingFacts.length > 0 && standingFactChars <= 6000;
+  const canShareHarness = Boolean(
+    context.rules.length >= 2 &&
+      context.skills.length > 0 &&
+      context.settings &&
+      context.hookPlan?.hooks.length &&
+      hasReviewer &&
+      hasMemory
+  );
+
+  const steps: HarnessRoadmapStep[] = [
+    roadmapStep(1, "foundation", "先定义单个智能体的运行环境", "让系统知道自己能想什么、能做什么、不能做什么。", true, "保持每次任务只推进一个明确目标。"),
+    roadmapStep(2, "foundation", "把支架集中在项目里", "别人接手时能一眼看懂项目规则、技能、护栏和记忆。", hasHarnessFolder, "直接说：补齐驾驭系统。"),
+    roadmapStep(3, "foundation", "分清支架、循环和长期系统", "先让一次人工触发的任务稳定，再考虑自动循环。", hasHarnessGuide, "先补一份项目支架说明，避免把流程规则塞进临时对话。"),
+    roadmapStep(4, "foundation", "摆脱空白默认配置", "不要每次让模型重新猜项目边界。", Boolean(context.settings || context.rules.length), "固定项目规则、权限和验证入口。"),
+    roadmapStep(5, "foundation", "保持长期事实短小", "每次开工只读取稳定事实，不把长流程都塞进上下文。", compactStandingFacts, "把流程步骤放进技能，把项目事实保留得更短。"),
+    roadmapStep(6, "control", "固定权限档案", "低风险动作自动走，高影响动作必须中文确认。", hasPermissions, "直接说：补齐权限护栏。"),
+    roadmapStep(7, "control", "让独立审查代理接住结果", "开发和审查分开，减少自己证明自己正确。", hasReviewer, "补齐独立审查角色，让它只看目标、风险和验证结果。"),
+    roadmapStep(8, "control", "把常用流程沉淀为技能", "反复出现的做法不用每次重新解释。", context.skills.length > 0, "把前端设计、验收检查和业务追问沉淀成可复用技能。"),
+    roadmapStep(9, "control", "用确定性规则拦截风险", "危险动作由系统规则挡住，不靠模型自觉。", hasBlockingHook && hasQualityHook, "补齐危险动作拦截和改动后验证反馈。"),
+    roadmapStep(10, "compound", "先稳定人工触发，再进入循环", "循环只能放大已有支架，不能替代支架。", Boolean(progress), "先完成一次从理解、开发、验证到审查的闭环，并写入进度。"),
+    roadmapStep(11, "compound", "让复杂任务按小队协作", "研究、开发、验证、审查分别处理，主线不被噪音污染。", hasReviewer && hasEvaluator && context.skills.length > 0, "补齐验证执行角色，再把复杂任务拆给不同角色。"),
+    roadmapStep(12, "compound", "把状态落到本地记忆", "中断后能继续，不需要用户重新解释一遍。", hasMemory, "每次任务结束前写清当前阶段、已确认事实和下一步。"),
+    roadmapStep(13, "compound", "把踩坑变成下一轮输入", "同类问题以后先被检查，而不是反复犯。", hasLessons, "直接说：记住这次经验，以后不要再这样。"),
+    roadmapStep(14, "compound", "把有效支架打包复用", "一个项目跑稳后，新项目可以继承同样的规则和护栏。", canShareHarness, "等规则、技能、权限、审查和记忆都稳定后，再作为团队默认支架复用。")
+  ];
+  const readyCount = steps.filter((step) => step.status === "ready").length;
+  const nextCount = steps.filter((step) => step.status === "next").length;
+  const laterCount = steps.filter((step) => step.status === "later").length;
+  const summary =
+    readyCount >= 11
+      ? "这套驾驭系统已经进入可复用阶段，可以承接较长的自动开发任务。"
+      : readyCount >= 7
+        ? "这套驾驭系统已经可用，下一步应补记忆、技能和更清晰的审查闭环。"
+        : "这套驾驭系统还在打基础，先补规则、权限、审查和记忆，再让模型跑复杂任务。";
+
+  return {
+    readyCount,
+    nextCount,
+    laterCount,
+    summary,
+    nextSteps: steps.filter((step) => step.status === "next").slice(0, 3).map((step) => `${step.title}：${step.nextAction}`),
+    steps
+  };
+}
+
+export function renderHarnessRoadmap(report: HarnessRoadmapReport): string {
+  const tierText: Record<HarnessRoadmapTier, string> = {
+    foundation: "基础层",
+    control: "控制层",
+    compound: "复利层"
+  };
+  const statusText: Record<HarnessRoadmapStatus, string> = {
+    ready: "已具备",
+    next: "先补",
+    later: "稍后"
+  };
+  const lines = report.steps.map(
+    (step) =>
+      `${String(step.number).padStart(2, "0")}. ${statusText[step.status]}｜${tierText[step.tier]}｜${step.title}：${step.userValue} 下一步：${step.nextAction}`
+  );
+
+  return [
+    `驾驭路线图：14 步中已有 ${report.readyCount} 步具备，${report.nextCount} 步建议优先补齐，${report.laterCount} 步适合后续完善。`,
+    report.summary,
+    report.nextSteps.length ? `当前最该做：\n${report.nextSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")}` : "",
+    "完整路线：",
+    ...lines
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function progressSnapshot(input: {
   task: string;
   currentStage: HarnessStage;
@@ -316,13 +427,13 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
           context.settings.permissions.deny?.length
       ),
       impact: "可自动执行和必须确认的动作被固定下来，减少每次临场判断。",
-      nextAction: "运行 ccli harness --init，生成权限档案，区分自动、确认和禁止动作。"
+      nextAction: "直接说：补齐驾驭系统，让系统生成权限档案，区分自动、确认和禁止动作。"
     },
     {
       name: "确定性钩子计划",
       ready: Boolean(context.hookPlan?.hooks.some((hook) => hook.blocks) && context.hookPlan.hooks.length >= 2),
       impact: "危险动作、改动后验证和会话结束记忆会走确定规则，不依赖模型自觉。",
-      nextAction: "运行 ccli harness --init，生成危险动作拦截、质量反馈和记忆写入钩子计划。"
+      nextAction: "直接说：补齐驾驭系统，让系统生成危险动作拦截、质量反馈和记忆写入钩子计划。"
     },
     {
       name: "阶段工具预算",
@@ -352,13 +463,13 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
       name: "结构化任务清单",
       ready: context.artifacts.some((document) => document.path.endsWith("feature-list.json")),
       impact: "长任务会按一个明确任务推进，降低一次做太多导致跑偏的概率。",
-      nextAction: "运行 ccli harness --init，生成结构化任务清单。"
+      nextAction: "直接说：补齐驾驭系统，让系统生成结构化任务清单。"
     },
     {
       name: "开工基线检查",
       ready: context.artifacts.some((document) => document.path.endsWith("init-check.json")),
       impact: "每次开工前先确认当前状态，避免在已经坏掉的项目上继续叠加新功能。",
-      nextAction: "运行 ccli harness --init，生成开工检查清单。"
+      nextAction: "直接说：补齐驾驭系统，让系统生成开工检查清单。"
     },
     {
       name: "长期项目记忆",
@@ -370,7 +481,7 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
       name: "失败经验库",
       ready: context.memories.some((document) => document.path === LESSONS_FILE),
       impact: "已经发生过的问题会变成下次任务前的输入，减少同类错误反复出现。",
-      nextAction: "运行 ccli learn 加上一句经验，例如“以后页面按钮必须在手机上也清楚”。"
+      nextAction: "直接说：记住这次经验，例如“以后页面按钮必须在手机上也清楚”。"
     },
     {
       name: "短期进度落盘",
@@ -398,6 +509,24 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
     gaps: gaps.map((item) => item.name),
     nextSteps: gaps.slice(0, 3).map((item) => item.nextAction),
     items
+  };
+}
+
+function roadmapStep(
+  number: number,
+  tier: HarnessRoadmapTier,
+  title: string,
+  userValue: string,
+  ready: boolean,
+  nextAction: string
+): HarnessRoadmapStep {
+  return {
+    number,
+    tier,
+    title,
+    status: ready ? "ready" : number <= 10 ? "next" : "later",
+    userValue,
+    nextAction
   };
 }
 

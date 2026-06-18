@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   analyzeHarnessReadiness,
+  analyzeHarnessRoadmap,
   defaultToolBudget,
   evaluateHarnessHooks,
   harnessPrompt,
@@ -14,6 +15,7 @@ import {
   renderHarnessMethod,
   renderHarnessProfile,
   renderHarnessReadiness,
+  renderHarnessRoadmap,
   renderHarnessSummary,
   writeHarnessProgress
 } from "../src/index.js";
@@ -124,6 +126,8 @@ describe("harness", () => {
       expect(report.gaps).toContain("短期进度落盘");
       expect(rendered).toContain("驾驭系统健康度");
       expect(rendered).toContain("建议下一步");
+      expect(rendered).toContain("直接说");
+      expect(rendered).not.toMatch(/\bccli\s/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -180,6 +184,74 @@ describe("harness", () => {
     expect(method).toContain("权限档案");
     expect(method).toContain("14 步路线");
     expect(method).toContain("以后不要再这样");
+  });
+
+  it("maps the 14-step harness roadmap to current project readiness", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-roadmap-"));
+    try {
+      await writeFile(join(root, "AGENTS.md"), "项目固定事实：所有用户可见结果都用中文。\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness", "rules"), { recursive: true });
+      await writeFile(join(root, ".ccli", "harness", "README.md"), "先让一次人工触发任务稳定，再考虑循环。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "rules", "safety.md"), "高影响动作必须确认。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "rules", "product.md"), "普通用户只看中文产品结果。\n", "utf8");
+      await mkdir(join(root, ".ccli", "skills"), { recursive: true });
+      await writeFile(join(root, ".ccli", "skills", "qa.md"), "检查目标、风险和验证覆盖。\n", "utf8");
+      await mkdir(join(root, ".ccli", "harness", "agents"), { recursive: true });
+      await writeFile(join(root, ".ccli", "harness", "agents", "reviewer.md"), "独立检查目标、风险和验证。\n", "utf8");
+      await writeFile(join(root, ".ccli", "harness", "agents", "eval-runner.md"), "整理验证反馈。\n", "utf8");
+      await writeFile(
+        join(root, ".ccli", "harness", "settings.json"),
+        JSON.stringify({
+          permissions: {
+            autoApprove: ["读取项目说明"],
+            confirm: ["推送分支"],
+            deny: ["无确认发布"]
+          }
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(root, ".ccli", "harness", "hooks.json"),
+        JSON.stringify({
+          hooks: [
+            { id: "dangerous-action-gate", when: "before-tool", description: "执行前拦截危险动作", blocks: true },
+            { id: "quality-feedback", when: "after-edit", description: "改动后运行验证" }
+          ]
+        }),
+        "utf8"
+      );
+      await recordHarnessLesson(root, {
+        symptom: "页面按钮太小",
+        impact: "手机用户不好点击。",
+        prevention: "新增页面先检查手机按钮尺寸。"
+      });
+      await writeHarnessProgress(
+        root,
+        progressSnapshot({
+          task: "首版产品",
+          currentStage: "review",
+          summary: "已经完成一轮验证。",
+          nextAction: "继续独立审查。",
+          validation: "passed"
+        })
+      );
+
+      const context = await loadHarnessContext(root);
+      const progress = await readHarnessProgress(root);
+      const report = analyzeHarnessRoadmap(context, progress);
+      const rendered = renderHarnessRoadmap(report);
+
+      expect(report.steps).toHaveLength(14);
+      expect(report.readyCount).toBeGreaterThanOrEqual(11);
+      expect(rendered).toContain("驾驭路线图");
+      expect(rendered).toContain("基础层");
+      expect(rendered).toContain("控制层");
+      expect(rendered).toContain("复利层");
+      expect(rendered).toContain("把踩坑变成下一轮输入");
+      expect(rendered).not.toMatch(/\bccli\s/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("turns deterministic hooks into a blocking runtime decision", async () => {
