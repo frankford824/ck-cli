@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,9 @@ import {
   harnessPrompt,
   loadHarnessContext,
   progressSnapshot,
+  recordHarnessLesson,
   readHarnessProgress,
+  renderHarnessMethod,
   renderHarnessReadiness,
   renderHarnessSummary,
   writeHarnessProgress
@@ -77,11 +79,63 @@ describe("harness", () => {
 
       expect(report.score).toBeLessThan(100);
       expect(report.gaps).toContain("安全和产品规则");
+      expect(report.gaps).toContain("失败经验库");
       expect(report.gaps).toContain("短期进度落盘");
       expect(rendered).toContain("驾驭系统健康度");
       expect(rendered).toContain("建议下一步");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("records repeated failures as reusable harness lessons", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-lessons-"));
+    try {
+      const lesson = {
+        task: "添加登录页",
+        stage: "validate" as const,
+        symptom: "手机按钮太小",
+        impact: "普通用户不容易点击。",
+        prevention: "以后新增按钮时先检查手机尺寸。",
+        source: "用户反馈"
+      };
+
+      const first = await recordHarnessLesson(root, lesson);
+      const second = await recordHarnessLesson(root, lesson);
+      const context = await loadHarnessContext(root);
+
+      expect(first.written).toBe(true);
+      expect(second.written).toBe(false);
+      expect(context.memories.some((document) => document.path.endsWith("LESSONS.md"))).toBe(true);
+      expect(harnessPrompt(context, "plan")).toContain("手机按钮太小");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps lesson writes safe when two commands record the same issue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-lessons-concurrent-"));
+    try {
+      const lesson = {
+        symptom: "不要把技术错误直接展示给普通用户",
+        impact: "普通用户会看不懂结果。",
+        prevention: "以后把错误翻译成发生了什么、影响什么和需要用户决定什么。",
+        source: "并发写入测试"
+      };
+
+      const results = await Promise.all([recordHarnessLesson(root, lesson), recordHarnessLesson(root, lesson)]);
+      const content = await readFile(join(root, ".ccli", "harness", "agent-memory", "LESSONS.md"), "utf8");
+
+      expect(results.filter((result) => result.written)).toHaveLength(1);
+      expect(content.match(/## 经验：不要把技术错误直接展示给普通用户/g)).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("explains harness engineering in plain Chinese", () => {
+    const method = renderHarnessMethod();
+    expect(method).toContain("模型 + 外部支架");
+    expect(method).toContain("以后不要再这样");
   });
 });

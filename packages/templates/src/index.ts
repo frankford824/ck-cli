@@ -358,6 +358,12 @@ Harness 是 ccli 驾驭模型的外部支架。它负责固定规则、限制工
 
 ccli 会把每次任务的短期进度写入本地 .ccli/progress.json，把可复用经验写入项目记忆。
 `,
+    ".ccli/harness/agent-memory/LESSONS.md": `# 失败经验库
+
+这里记录已经发生过的问题，以及以后如何避免。
+
+当用户说“以后不要再这样”或运行 ccli learn 时，ccli 会把经验写到这里，并在后续任务开始前读取。
+`,
     "DESIGN.md": `# 设计契约
 
 ## 产品目标

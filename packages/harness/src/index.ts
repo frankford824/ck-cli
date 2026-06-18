@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { appendFile, mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 export type HarnessStage = "inspect" | "plan" | "build" | "validate" | "review" | "save" | "ship";
 
@@ -15,6 +17,7 @@ export interface HarnessContext {
   rules: HarnessDocument[];
   skills: HarnessDocument[];
   memory?: HarnessDocument;
+  memories: HarnessDocument[];
   toolBudget: HarnessToolBudget[];
 }
 
@@ -33,6 +36,22 @@ export interface HarnessProgress {
   facts: string[];
   nextAction: string;
   validation?: "passed" | "failed" | "skipped";
+}
+
+export interface HarnessLessonInput {
+  task?: string;
+  stage?: HarnessStage;
+  symptom: string;
+  impact: string;
+  prevention: string;
+  source?: string;
+}
+
+export interface HarnessLessonResult {
+  path: string;
+  written: boolean;
+  entry: string;
+  message: string;
 }
 
 export type HarnessReadinessLevel = "strong" | "usable" | "thin";
@@ -58,22 +77,25 @@ const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
 const MEMORY_FILE = ".ccli/harness/agent-memory/STATE.md";
+const LESSONS_FILE = ".ccli/harness/agent-memory/LESSONS.md";
+const MEMORY_FILES = [MEMORY_FILE, LESSONS_FILE];
 const PROGRESS_FILE = ".ccli/progress.json";
 const MAX_DOCUMENT_CHARS = 5000;
 
 export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
-  const [standingFacts, rules, skills, memory] = await Promise.all([
+  const [standingFacts, rules, skills, memories] = await Promise.all([
     readDocuments(cwd, STANDING_FACT_FILES),
     readDocuments(cwd, RULE_FILES),
     readDocuments(cwd, SKILL_FILES),
-    readOptionalDocument(cwd, MEMORY_FILE, "项目记忆")
+    readDocuments(cwd, MEMORY_FILES)
   ]);
 
   return {
     standingFacts,
     rules,
     skills,
-    memory,
+    memory: memories[0],
+    memories,
     toolBudget: defaultToolBudget()
   };
 }
@@ -100,7 +122,7 @@ export function harnessPrompt(context: HarnessContext, stage: HarnessStage): str
     renderDocuments("长期事实", context.standingFacts),
     renderDocuments("确定性规则", context.rules),
     renderDocuments("可复用技能", context.skills),
-    context.memory ? renderDocuments("项目记忆", [context.memory]) : ""
+    context.memories.length ? renderDocuments("项目记忆", context.memories) : context.memory ? renderDocuments("项目记忆", [context.memory]) : ""
   ];
 
   return sections.filter(Boolean).join("\n\n").slice(0, 16_000);
@@ -118,6 +140,48 @@ export async function readHarnessProgress(cwd: string): Promise<HarnessProgress 
   } catch {
     return undefined;
   }
+}
+
+export async function recordHarnessLesson(cwd: string, input: HarnessLessonInput): Promise<HarnessLessonResult> {
+  const normalized = normalizeLessonInput(input);
+  const entry = renderHarnessLesson(normalized);
+  const absolutePath = join(cwd, LESSONS_FILE);
+  await mkdir(dirname(absolutePath), { recursive: true });
+
+  return withLessonFileLock(absolutePath, async () => {
+    await ensureLessonFile(absolutePath);
+    const existing = await readFile(absolutePath, "utf8");
+    const fingerprint = lessonFingerprint(normalized);
+    if (existing.includes(fingerprint)) {
+      return {
+        path: LESSONS_FILE,
+        written: false,
+        entry,
+        message: "这条经验之前已经记录过，后续任务会继续使用。"
+      };
+    }
+
+    await appendFile(absolutePath, `\n${fingerprint}\n${entry}\n`, "utf8");
+
+    return {
+      path: LESSONS_FILE,
+      written: true,
+      entry,
+      message: "已把这条经验写入项目记忆，后续任务会先读取它。"
+    };
+  });
+}
+
+export function renderHarnessMethod(): string {
+  return [
+    "驾驭方法：把智能体当成“模型 + 外部支架”。",
+    "实际使用时按四步走：",
+    "1. 先固定项目指南，让系统每次都知道边界和禁区。",
+    "2. 每个阶段只开放少量必要工具，先了解、再计划、再实现、再验证。",
+    "3. 验证失败先回到开发代理自动修复，不直接把技术错误丢给用户。",
+    "4. 每次踩坑都写成项目经验，下次任务开始前自动读取，避免重复犯错。",
+    "普通用户只需要说：以后不要再这样。ccli 会把这句话沉淀成下一轮可用的项目经验。"
+  ].join("\n");
 }
 
 export function progressSnapshot(input: {
@@ -179,9 +243,15 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
     },
     {
       name: "长期项目记忆",
-      ready: Boolean(context.memory),
+      ready: context.memories.length > 0 || Boolean(context.memory),
       impact: "跨会话能记住项目事实，长任务不完全依赖模型上下文。",
       nextAction: "沉淀一份项目状态，记录已确认事实、当前阶段和下次接手重点。"
+    },
+    {
+      name: "失败经验库",
+      ready: context.memories.some((document) => document.path === LESSONS_FILE),
+      impact: "已经发生过的问题会变成下次任务前的输入，减少同类错误反复出现。",
+      nextAction: "运行 ccli learn 加上一句经验，例如“以后页面按钮必须在手机上也清楚”。"
     },
     {
       name: "短期进度落盘",
@@ -280,7 +350,7 @@ export function renderHarnessSummary(context: HarnessContext): string {
   const facts = context.standingFacts.length;
   const rules = context.rules.length;
   const skills = context.skills.length;
-  const memory = context.memory ? "已接入历史记忆" : "暂无历史记忆";
+  const memory = context.memories.length ? `已接入 ${context.memories.length} 份项目记忆` : context.memory ? "已接入历史记忆" : "暂无历史记忆";
   return `驾驭系统已加载：${facts} 份长期事实、${rules} 份确定性规则、${skills} 个复用技能，${memory}。`;
 }
 
@@ -316,4 +386,94 @@ function renderDocuments(title: string, documents: HarnessDocument[]): string {
 function titleFromPath(relativePath: string): string {
   const fileName = relativePath.split("/").pop() ?? relativePath;
   return fileName.replace(/\.[^.]+$/, "");
+}
+
+function normalizeLessonInput(input: HarnessLessonInput): Required<HarnessLessonInput> {
+  const symptom = cleanLessonText(input.symptom, "未说明的问题");
+  const impact = cleanLessonText(input.impact, "这会影响用户对结果的判断。");
+  const prevention = cleanLessonText(input.prevention, `以后遇到类似情况，先检查：${symptom}`);
+  return {
+    task: cleanLessonText(input.task ?? "通用经验", "通用经验"),
+    stage: input.stage ?? "review",
+    symptom,
+    impact,
+    prevention,
+    source: cleanLessonText(input.source ?? "用户经验", "用户经验")
+  };
+}
+
+function renderHarnessLesson(input: Required<HarnessLessonInput>): string {
+  return [
+    `## 经验：${input.symptom}`,
+    "",
+    `- 时间：${new Date().toISOString()}`,
+    `- 任务：${input.task}`,
+    `- 阶段：${stageLabel(input.stage)}`,
+    `- 影响：${input.impact}`,
+    `- 以后这样避免：${input.prevention}`,
+    `- 来源：${input.source}`
+  ].join("\n");
+}
+
+function lessonFingerprint(input: Required<HarnessLessonInput>): string {
+  const hash = createHash("sha256")
+    .update([input.task, input.stage, input.symptom, input.impact, input.prevention].join("\n"))
+    .digest("hex")
+    .slice(0, 12);
+  return `<!-- ccli-lesson:${hash} -->`;
+}
+
+function cleanLessonText(value: string, fallback: string): string {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return (cleaned || fallback).slice(0, 500);
+}
+
+function stageLabel(stage: HarnessStage): string {
+  const labels: Record<HarnessStage, string> = {
+    inspect: "了解项目",
+    plan: "整理方案",
+    build: "实现功能",
+    validate: "自动验证",
+    review: "独立审查",
+    save: "保存成果",
+    ship: "准备交付"
+  };
+  return labels[stage];
+}
+
+async function ensureLessonFile(absolutePath: string): Promise<void> {
+  try {
+    await writeFile(absolutePath, "# 失败经验库\n\n这里记录已经发生过的问题，以及以后如何避免。\n", { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (!isFileExistsError(error)) {
+      throw error;
+    }
+  }
+}
+
+async function withLessonFileLock<T>(absolutePath: string, callback: () => Promise<T>): Promise<T> {
+  const lockPath = `${absolutePath}.lock`;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      handle = await open(lockPath, "wx");
+      await handle.writeFile(new Date().toISOString(), "utf8");
+      return await callback();
+    } catch (error) {
+      if (!isFileExistsError(error)) {
+        throw error;
+      }
+      await delay(25 + attempt * 10);
+    } finally {
+      if (handle) {
+        await handle.close();
+        await unlink(lockPath).catch(() => undefined);
+      }
+    }
+  }
+  throw new Error("经验库正在写入，请稍后再试。");
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "EEXIST";
 }
