@@ -1,5 +1,5 @@
 {
-  "name": "@ccli/agent-core",
+  "name": "@ccli/harness",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,17 +12,6 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --sourcemap --clean"
-  },
-  "dependencies": {
-    "@ccli/harness": "workspace:*",
-    "@ccli/memory": "workspace:*",
-    "@ccli/methodology": "workspace:*",
-    "@ccli/policy": "workspace:*",
-    "@ccli/product-ui": "workspace:*",
-    "@ccli/providers": "workspace:*",
-    "@ccli/review": "workspace:*",
-    "@ccli/session": "workspace:*",
-    "@ccli/tools": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",

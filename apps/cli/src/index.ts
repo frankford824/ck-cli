@@ -9,6 +9,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import { hardwareManifest, healthSummary, renderHealthReport, renderWelcome } from "@ccli/experience";
+import { loadHarnessContext, readHarnessProgress, renderHarnessSummary } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
 import { ProductRenderer } from "@ccli/product-ui";
@@ -135,6 +136,28 @@ program
         print(JSON.stringify(hardwareManifest(), null, 2));
       } else {
         print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示和选项。");
+      }
+    });
+  });
+
+program
+  .command("harness")
+  .description("查看当前项目的智能体驾驭系统")
+  .action(async () => {
+    await withCli(async ({ renderer, cwd, expert }) => {
+      const context = await loadHarnessContext(cwd);
+      const progress = await readHarnessProgress(cwd);
+      print(renderer.render({ type: "info", message: "智能体驾驭系统已启用，会负责规则、护栏、验证反馈和进度记忆。" }));
+      print(renderHarnessSummary(context));
+      if (progress) {
+        print(renderer.render({ type: "info", message: `最近进度：${progress.summary} 下一步：${progress.nextAction}` }));
+      }
+      if (expert) {
+        for (const budget of context.toolBudget) {
+          print(`${budget.stage}: ${budget.userVisibleGoal}`);
+          print(`  allowed: ${budget.allowedTools.join(", ")}`);
+          print(`  denied: ${budget.deniedActions.join(", ")}`);
+        }
       }
     });
   });

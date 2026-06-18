@@ -14,6 +14,7 @@
 - 借鉴 gstack：内置“确认目标、整理方案、实现、审查、验证、交付、沉淀经验”的专家流程。
 - 借鉴 open-design：新项目默认生成 `DESIGN.md`、`.ccli/skills/` 和 `.ccli/design-systems/`。
 - 借鉴 Anthropic frontend-design skill：新项目默认带中文前端设计技能，开发代理会读取设计契约和技能约束。
+- 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环和 `.ccli/progress.json` 进度落盘。
 
 ## 一键安装
 
@@ -42,13 +43,13 @@ ccli roles
 如果要在 PR 分支上提前试用：
 
 ```bash
-CCLI_REF=codex/initial-ccli-implementation bash -c "$(curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/codex/initial-ccli-implementation/install.sh)"
+CCLI_REF=codex/boss-first-experience bash -c "$(curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/codex/boss-first-experience/install.sh)"
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:CCLI_REF="codex/initial-ccli-implementation"; irm https://raw.githubusercontent.com/frankford824/ck-cli/codex/initial-ccli-implementation/install.ps1 | iex
+$env:CCLI_REF="codex/boss-first-experience"; irm https://raw.githubusercontent.com/frankford824/ck-cli/codex/boss-first-experience/install.ps1 | iex
 ```
 
 前置要求：
@@ -100,6 +101,8 @@ ccli ship --merge --yes
 ccli audit --expert
 ccli roles --expert
 ccli design --expert
+ccli harness
+ccli harness --expert
 ccli memory search "登录页面" --expert
 ccli hardware --expert
 ```
@@ -131,6 +134,28 @@ ccli doctor
 ```
 
 `doctor` 只用中文说明哪些能力已经就绪、哪些需要处理。普通模式不会显示命令、路径、堆栈或底层错误。
+
+## 驾驭系统
+
+ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开发和审查；驾驭系统负责把模型限制在稳定流程里：
+
+- 启动任务时读取 `AGENTS.md`、`CLAUDE.md`、`CCLI.md`、`.ccli/harness/` 和 `.ccli/skills/`。
+- 每个阶段只暴露少量工具语义，减少模型选择噪音。
+- 自动验证失败时，把失败摘要交回开发代理，最多先自动修复一次。
+- 每个阶段写入 `.ccli/progress.json`，长任务或上下文丢失后可以接管。
+- 所有原始工具结果和模型细节仍进入 `.ccli/audit/*.jsonl`。
+
+查看当前项目的驾驭系统：
+
+```bash
+ccli harness
+```
+
+查看专家细节：
+
+```bash
+ccli harness --expert
+```
 
 ## 智能硬件预留
 
