@@ -11,6 +11,7 @@ import { TaskOrchestrator } from "@ccli/agent-core";
 import {
   createAcceptanceGuide,
   createBossHome,
+  createBossReportCard,
   createExperienceEvent,
   createHardwareResponse,
   createResumeGuide,
@@ -21,6 +22,7 @@ import {
   healthSummary,
   renderAcceptanceGuide,
   renderBossHome,
+  renderBossReportCard,
   renderHealthReport,
   renderNextActions,
   renderResumeGuide,
@@ -31,6 +33,7 @@ import {
   starterIdeas,
   type ExperienceAction,
   type HardwareResponse,
+  type BossReportCard,
   type HealthReport,
   type NextAction,
   type NextActionPlan,
@@ -321,6 +324,22 @@ program
         return;
       }
       print(renderBossHome(home));
+    });
+  });
+
+program
+  .command("report")
+  .aliases(["summary", "card"])
+  .description("生成老板交付汇报卡")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const card = await buildBossReportCard(cwd);
+      if (options.json) {
+        print(JSON.stringify(card, null, 2));
+        return;
+      }
+      print(renderBossReportCard(card));
     });
   });
 
@@ -1242,6 +1261,22 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     ));
   }
 
+  if (isReportRequest(utterance)) {
+    const card = await buildBossReportCard(inputValue.cwd);
+    const actions = nextPlanActions({ summary: card.summary, actions: card.actions });
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: card.status === "needs-attention" ? "warning" : card.status === "empty" ? "asking" : "calm",
+        say: card.summary,
+        screen: renderBossReportCard(card),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "report-card", card }
+    ));
+  }
+
   if (isSatisfiedDeliveryRequest(utterance)) {
     const actions = [
       commandAction("confirm-delivery", "确认交付并合并", "ccli finish --yes", "会发送成果、进行独立审查，并在审查通过后合并。", true),
@@ -1545,6 +1580,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isReportRequest(request)) {
+    print(renderBossReportCard(await buildBossReportCard(inputValue.cwd)));
+    return true;
+  }
+
   if (isTryDemoRequest(request)) {
     await runTryDemo({
       renderer: inputValue.renderer,
@@ -1737,6 +1777,79 @@ async function buildBossHome(cwd: string) {
     nextPlan,
     ideas: starterIdeas()
   });
+}
+
+async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
+  const [projects, workspace] = await Promise.all([readProjectRegistry(), resolveProductWorkspace(cwd)]);
+  const targetCwd = workspace?.cwd ?? cwd;
+  const [progress, state, readiness, audit, nextPlan] = await Promise.all([
+    readHarnessProgress(targetCwd).catch(() => undefined),
+    readState(targetCwd).catch(() => undefined),
+    previewReadiness(targetCwd).catch(() => undefined),
+    readLatestAuditSummary(targetCwd).catch(() => ({ entries: [] })),
+    buildNextActionPlan(targetCwd).catch(() => ({ summary: "先看当前结果，再决定下一步。", actions: [] }))
+  ]);
+  const current = workspace?.project ?? projectForCwd(projects, targetCwd);
+  const latest = workspace?.usedLatest ? workspace.project : undefined;
+  const project = current ?? latest ?? projects[0];
+  const hasProduct = Boolean(current || latest || readiness?.canPreview || progress || state);
+  return createBossReportCard({
+    productName: current?.name ?? latest?.name ?? (readiness?.canPreview ? productWorkspaceName({ cwd: targetCwd, project, usedLatest: false }) : project?.name),
+    goal: current?.idea ?? latest?.idea ?? project?.idea,
+    progress,
+    state,
+    canPreview: Boolean(readiness?.canPreview),
+    nextActions: hasProduct ? reportCardActions(nextPlan.actions, Boolean(readiness?.canPreview), hasProduct) : undefined,
+    auditSummary: audit.entries.length ? "最近处理过程已保存，可追溯。" : undefined
+  });
+}
+
+function reportCardActions(baseActions: NextAction[], canPreview: boolean, hasProduct: boolean): NextAction[] {
+  if (!hasProduct) {
+    return baseActions;
+  }
+  const bossActions: NextAction[] = [];
+  if (canPreview) {
+    bossActions.push({
+      id: "preview-current",
+      title: "打开当前产品",
+      reason: "先看真实页面，最容易判断是否满意。",
+      say: "打开当前产品页面"
+    });
+  }
+  bossActions.push(
+    {
+      id: "accept-current",
+      title: "按清单验收",
+      reason: "用老板能看懂的标准判断是否满意。",
+      say: "怎么验收当前产品"
+    },
+    {
+      id: "revise-current",
+      title: "继续修改",
+      reason: "不满意可以直接说具体要改哪里。",
+      say: "我想改一下：首页重点不够明显"
+    },
+    {
+      id: "undo-current",
+      title: "撤回上次成果",
+      reason: "如果最近一次改动方向错了，可以撤回最近保存的成果。",
+      say: "撤回上次改动"
+    },
+    {
+      id: "finish-current",
+      title: "准备交付",
+      reason: "如果已经满意，可以进入审查和交付。",
+      say: "我满意，准备交付"
+    },
+    {
+      id: "next",
+      title: "让系统给下一步",
+      reason: "如果还没判断好，先让 ccli 根据当前状态推荐。",
+      say: "下一步怎么办"
+    }
+  );
+  return uniqueNextActions([...bossActions, ...baseActions]).slice(0, 5);
 }
 
 async function buildSetupGuide(cwd: string) {
@@ -2486,6 +2599,14 @@ function isResumeRequest(request: string): boolean {
   return (
     /(?:继续上次任务|继续刚才任务|恢复上次任务|恢复刚才任务|接着上次|接着刚才|继续上次|继续刚才|恢复现场|接回现场|上次做到哪|刚才做到哪|上次进度|刚才进度)/.test(normalized) ||
     /^(?:resume|continue)$/.test(normalized)
+  );
+}
+
+function isReportRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:汇报|报告|总结|进度卡|交付卡|老板汇报|交付说明|当前结果|成果摘要|现在做到哪|现在进展|做到哪了|做得怎么样|目前情况|当前情况)/.test(normalized) ||
+    /^(?:report|summary|card)$/.test(normalized)
   );
 }
 
