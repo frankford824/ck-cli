@@ -138,6 +138,26 @@ export interface HarnessReadinessReport {
   items: HarnessReadinessItem[];
 }
 
+export type HarnessContextHygieneStatus = "healthy" | "watch" | "bloated";
+
+export interface HarnessContextDocumentCheck {
+  title: string;
+  status: HarnessContextHygieneStatus;
+  size: number;
+  issue: string;
+  recommendation: string;
+}
+
+export interface HarnessContextHygieneReport {
+  status: HarnessContextHygieneStatus;
+  summary: string;
+  totalSize: number;
+  recommendedMaxPerDocument: number;
+  recommendedMaxTotal: number;
+  checks: HarnessContextDocumentCheck[];
+  nextSteps: string[];
+}
+
 export type HarnessRoadmapTier = "foundation" | "control" | "compound";
 export type HarnessRoadmapStatus = "ready" | "next" | "later";
 
@@ -210,6 +230,8 @@ const LESSONS_FILE = ".ccli/harness/agent-memory/LESSONS.md";
 const MEMORY_FILES = [MEMORY_FILE, LESSONS_FILE];
 const PROGRESS_FILE = ".ccli/progress.json";
 const MAX_DOCUMENT_CHARS = 5000;
+const STANDING_FACT_DOCUMENT_MAX_CHARS = 2200;
+const STANDING_FACT_TOTAL_MAX_CHARS = 5200;
 const SECRET_TARGET = /(^|\/|\\)(\.env|\.env\..*|id_rsa|id_dsa|id_ed25519|.*\.pem|.*\.key|.*secret.*|.*credential.*)$/i;
 const SECRET_COMMAND = /\b(cat|type|less|more|sed|awk)\b[\s\S]*(\.env|id_rsa|id_dsa|id_ed25519|\.pem|\.key|secret|credential)/i;
 const REMOTE_SCRIPT = /(curl|wget)\s+[^|&;]+(\|\s*(bash|sh|zsh)|>\s*[^&;]+\s*&&\s*(bash|sh|zsh))/i;
@@ -330,10 +352,65 @@ export function renderHarnessMethod(): string {
     "4. 记忆：每个阶段写进度，踩坑写经验；下一轮先读取，不从零猜。",
     "",
     "落地原则：长期事实保持短小，反复流程沉淀为技能，必须执行或必须阻止的动作交给确定性护栏，研究和审查交给独立角色，循环自动化最后再上。",
+    "上下文瘦身原则：每次都要读的只放稳定事实；多步流程放技能；安全禁区放规则；临时进度放记忆。",
     "14 步路线可以压缩为一个顺序：先让一次人工触发的任务稳定，再补项目指南、权限档案、审查子代理、技能、钩子和记忆，最后再考虑循环自动跑。",
     "普通用户只需要说：补齐驾驭系统。ccli 会把这些支架放进项目里，并用中文告诉你还缺什么。",
     "如果某次结果踩坑，只需要说：以后不要再这样。ccli 会把它沉淀成下一轮可用的项目经验。"
   ].join("\n");
+}
+
+export function analyzeHarnessContextHygiene(context: HarnessContext): HarnessContextHygieneReport {
+  const checks = context.standingFacts.map((document) => analyzeStandingFactDocument(document));
+  const totalSize = checks.reduce((sum, check) => sum + check.size, 0);
+  const hasBloatedDocument = checks.some((check) => check.status === "bloated");
+  const hasWatchDocument = checks.some((check) => check.status === "watch");
+  const totalBloated = totalSize > STANDING_FACT_TOTAL_MAX_CHARS;
+  const status: HarnessContextHygieneStatus =
+    checks.length === 0 ? "watch" : hasBloatedDocument || totalBloated ? "bloated" : hasWatchDocument ? "watch" : "healthy";
+
+  const nextSteps = contextHygieneNextSteps({ checks, status, totalBloated });
+
+  return {
+    status,
+    summary:
+      status === "healthy"
+        ? "长期事实保持短小，适合每次开工自动读取。"
+        : status === "watch"
+          ? "长期事实可以使用，但建议把流程性内容继续拆到技能或规则里。"
+          : "长期事实已经偏重，会让模型每次开工都背上太多无关内容。",
+    totalSize,
+    recommendedMaxPerDocument: STANDING_FACT_DOCUMENT_MAX_CHARS,
+    recommendedMaxTotal: STANDING_FACT_TOTAL_MAX_CHARS,
+    checks,
+    nextSteps
+  };
+}
+
+export function renderHarnessContextHygiene(report: HarnessContextHygieneReport): string {
+  const statusText: Record<HarnessContextHygieneStatus, string> = {
+    healthy: "健康",
+    watch: "需要留意",
+    bloated: "需要瘦身"
+  };
+  const checkText = report.checks.length
+    ? report.checks
+        .map(
+          (check, index) =>
+            `${index + 1}. ${statusText[check.status]}｜${check.title}：${check.issue} 建议：${check.recommendation}`
+        )
+        .join("\n")
+    : "还没有长期事实。";
+
+  return [
+    `长期上下文检查：${statusText[report.status]}。`,
+    report.summary,
+    `当前长期事实约 ${report.totalSize} 字。建议单份不超过 ${report.recommendedMaxPerDocument} 字，总量不超过 ${report.recommendedMaxTotal} 字。`,
+    "检查结果：",
+    checkText,
+    report.nextSteps.length ? `建议下一步：\n${report.nextSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function analyzeHarnessPlaybook(context: HarnessContext, progress?: HarnessProgress): HarnessPlaybookReport {
@@ -453,6 +530,7 @@ export function renderHarnessPlaybook(report: HarnessPlaybookReport): string {
 }
 
 export function analyzeHarnessRoadmap(context: HarnessContext, progress?: HarnessProgress): HarnessRoadmapReport {
+  const contextHygiene = analyzeHarnessContextHygiene(context);
   const hasHarnessFolder = Boolean(
     context.rules.length || context.skills.length || context.artifacts.length || context.agents.length || context.settings || context.hookPlan
   );
@@ -468,8 +546,7 @@ export function analyzeHarnessRoadmap(context: HarnessContext, progress?: Harnes
   const hasQualityHook = Boolean(context.hookPlan?.hooks.some((hook) => hook.id === "quality-feedback"));
   const hasMemory = context.memories.length > 0 || Boolean(context.memory) || Boolean(progress);
   const hasLessons = context.memories.some((document) => document.path === LESSONS_FILE);
-  const standingFactChars = context.standingFacts.reduce((sum, document) => sum + document.content.length, 0);
-  const compactStandingFacts = context.standingFacts.length > 0 && standingFactChars <= 6000;
+  const compactStandingFacts = context.standingFacts.length > 0 && contextHygiene.status === "healthy";
   const canShareHarness = Boolean(
     context.rules.length >= 2 &&
       context.skills.length > 0 &&
@@ -705,12 +782,19 @@ export function progressSnapshot(input: {
 }
 
 export function analyzeHarnessReadiness(context: HarnessContext, progress?: HarnessProgress): HarnessReadinessReport {
+  const contextHygiene = analyzeHarnessContextHygiene(context);
   const items: HarnessReadinessItem[] = [
     {
       name: "确定性项目指南",
       ready: context.standingFacts.length > 0,
       impact: "模型每次都能先看到稳定边界，减少跑偏。",
       nextAction: "补一份项目指南，写清楚目标用户、禁止事项和常用验证方式。"
+    },
+    {
+      name: "长期上下文瘦身",
+      ready: contextHygiene.status === "healthy",
+      impact: "长期事实保持短小，流程放进技能和规则，模型每次开工更稳定。",
+      nextAction: contextHygiene.nextSteps[0] ?? "把流程步骤移到技能，把安全底线移到规则，长期事实只保留每次必读内容。"
     },
     {
       name: "安全和产品规则",
@@ -809,6 +893,75 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
     nextSteps: gaps.slice(0, 3).map((item) => item.nextAction),
     items
   };
+}
+
+function analyzeStandingFactDocument(document: HarnessDocument): HarnessContextDocumentCheck {
+  const size = document.content.length;
+  const signalCount = countProcedureSignals(document.content);
+  const tooLarge = size > STANDING_FACT_DOCUMENT_MAX_CHARS;
+  const procedureHeavy = signalCount >= 5 || (signalCount >= 3 && size > 1200);
+  const status: HarnessContextHygieneStatus = tooLarge ? "bloated" : procedureHeavy ? "watch" : "healthy";
+
+  return {
+    title: standingFactDisplayTitle(document.path, document.title),
+    status,
+    size,
+    issue: tooLarge
+      ? "内容太长，已经不适合每次完整读取。"
+      : procedureHeavy
+        ? "里面混入了较多流程步骤，容易把长期事实变成操作手册。"
+        : "长度和内容都适合做长期事实。",
+    recommendation: tooLarge
+      ? "只保留稳定事实，把流程拆到技能，把强制要求放到规则。"
+      : procedureHeavy
+        ? "保留每次必读事实，把多步做法拆成可复用技能。"
+        : "继续保持短小，新增流程时优先放进技能。"
+  };
+}
+
+function countProcedureSignals(content: string): number {
+  const matches = [
+    content.match(/(^|\n)\s*\d+[.、]/g)?.length ?? 0,
+    content.match(/固定流程|操作步骤|执行步骤|检查清单|发布流程|合并流程|交付流程/g)?.length ?? 0,
+    content.match(/运行命令|执行命令|代码块|错误堆栈|原始日志/g)?.length ?? 0,
+    content.match(/先[^。\n；;]{0,80}(?:再|然后|最后)/g)?.length ?? 0
+  ];
+  return matches.reduce((sum, count) => sum + count, 0);
+}
+
+function standingFactDisplayTitle(path: string, fallback: string): string {
+  const titles: Record<string, string> = {
+    "AGENTS.md": "项目固定事实",
+    "CLAUDE.md": "模型固定事实",
+    "CCLI.md": "ccli 固定事实",
+    ".ccli/harness/README.md": "驾驭说明"
+  };
+  return titles[path] ?? fallback;
+}
+
+function contextHygieneNextSteps(input: {
+  checks: HarnessContextDocumentCheck[];
+  status: HarnessContextHygieneStatus;
+  totalBloated: boolean;
+}): string[] {
+  if (!input.checks.length) {
+    return ["补一份短项目指南，只写目标用户、输出语言、安全底线和最重要的项目事实。"];
+  }
+
+  const steps: string[] = [];
+  if (input.totalBloated) {
+    steps.push("先压缩长期事实总量，只留下每次开工都必须知道的稳定事实。");
+  }
+  if (input.checks.some((check) => check.status === "bloated")) {
+    steps.push("把长篇流程、发布说明和检查步骤移到技能或规则里，长期事实只保留短句。");
+  }
+  if (input.checks.some((check) => check.status === "watch")) {
+    steps.push("把重复出现的多步做法沉淀为技能，避免每次开工都读完整流程。");
+  }
+  if (!steps.length && input.status === "healthy") {
+    steps.push("继续保持长期事实短小；新增流程时优先写进技能，新增禁区时写进规则。");
+  }
+  return steps.slice(0, 3);
 }
 
 function roadmapStep(
