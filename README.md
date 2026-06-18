@@ -125,6 +125,7 @@ ccli do "添加一个登录页面"
 ccli preview --install
 ccli status
 ccli resume
+ccli undo
 ccli review
 ccli pr --yes
 ccli ship --yes
@@ -228,6 +229,13 @@ ccli "怎么验收当前产品"
 
 ```bash
 ccli revise "首页太乱，重点不够明显"
+```
+
+如果刚才改错了，可以撤回上次保存的成果：
+
+```bash
+ccli undo
+ccli "撤回上次改动"
 ```
 
 满意后的交付也可以显式执行：
@@ -513,6 +521,7 @@ ccli hardware "试用一下" --json
 ccli hardware "我第一次用怎么开始" --json
 ccli hardware "怎么验收当前产品" --json
 ccli hardware "我想改一下：首页太乱，重点不够明显" --json
+ccli hardware "撤回上次改动" --json
 ccli hardware "我满意，准备交付" --json
 ccli hardware "确认" --json
 ccli hardware "给我几个产品模板" --json

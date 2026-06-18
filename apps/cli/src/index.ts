@@ -758,6 +758,16 @@ program
   });
 
 program
+  .command("undo")
+  .alias("rollback")
+  .description("撤回上次保存的成果")
+  .action(async () => {
+    await withCli(async ({ renderer, cwd, yes }) => {
+      await runUndoFlow({ cwd, renderer, yes, useLatestProduct: true });
+    });
+  });
+
+program
   .command("audit")
   .description("查看最近一次审计摘要")
   .action(async () => {
@@ -1181,6 +1191,25 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     ));
   }
 
+  if (isUndoRequest(utterance)) {
+    const actions = [
+      commandAction("confirm-undo", "确认撤回上次成果", "ccli undo --yes", "会撤回上次保存的成果，并生成一条新的保存记录。", true),
+      utteranceAction("acceptance", "先看验收清单", "怎么验收当前产品"),
+      utteranceAction("cancel", "先不撤回", "取消")
+    ];
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "可以撤回上次保存的成果。这个动作会改变当前产品，需要确认。",
+        screen: "撤回上次成果\n确认后会撤回上次保存的成果，并生成一条新的保存记录。",
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "undo-confirmation" }
+    ));
+  }
+
   if (isSetupStartRequest(utterance) || isSetupGuideRequest(utterance)) {
     const guide = await buildSetupGuide(inputValue.cwd);
     const actions = setupGuideActions(guide);
@@ -1524,6 +1553,16 @@ async function runNaturalLanguageIntent(inputValue: {
       previewOpenBrowser: true,
       previewHost: "127.0.0.1",
       previewPort: 5173
+    });
+    return true;
+  }
+
+  if (isUndoRequest(request)) {
+    await runUndoFlow({
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      yes: inputValue.yes,
+      useLatestProduct: true
     });
     return true;
   }
@@ -2221,6 +2260,46 @@ async function runDeliveryFlow(inputValue: {
   print(inputValue.renderer.render({ type: merge.merged ? "done" : "risk", message: merge.message, severity: merge.merged ? "success" : "warning" }));
 }
 
+async function runUndoFlow(inputValue: {
+  cwd: string;
+  renderer: ProductRenderer;
+  yes: boolean;
+  useLatestProduct?: boolean;
+}): Promise<void> {
+  const workspace = inputValue.useLatestProduct ? await resolveProductWorkspace(inputValue.cwd) : undefined;
+  if (inputValue.useLatestProduct && !workspace) {
+    print(inputValue.renderer.render({ type: "risk", message: "还没有找到可撤回的产品。可以先说“试用一下”或“给我几个产品模板”。", severity: "warning" }));
+    return;
+  }
+  const cwd = workspace?.cwd ?? inputValue.cwd;
+  if (workspace?.usedLatest) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+  }
+
+  const audit = await AuditSession.create({ cwd, task: "撤回上次成果" });
+  const git = new GitTool();
+  const last = await git.lastCommit(cwd);
+  if (!last) {
+    print(inputValue.renderer.render({ type: "info", message: "还没有可以撤回的已保存成果。" }));
+    return;
+  }
+
+  const confirmed =
+    inputValue.yes ||
+    (await confirmChinese("这会撤回上次保存的成果，并生成一条新的保存记录。是否继续？"));
+  if (!confirmed) {
+    print(inputValue.renderer.render({ type: "risk", message: "已取消撤回动作。", severity: "warning" }));
+    return;
+  }
+
+  print(inputValue.renderer.progress("save", "正在撤回上次成果。"));
+  const result = await git.revertLastCommit({ cwd, audit, confirmed: true });
+  print(inputValue.renderer.render({ type: result.reverted ? "done" : "info", message: result.message, severity: result.reverted ? "success" : "info" }));
+  if (result.reverted) {
+    print(renderAcceptanceGuide(await buildAcceptanceGuide(cwd)));
+  }
+}
+
 async function renderKnownProjects(inputValue: { renderer: ProductRenderer; expert: boolean; json: boolean }): Promise<void> {
   const projects = await readProjectRegistry();
   if (inputValue.json) {
@@ -2464,6 +2543,12 @@ function isTryDemoRequest(request: string): boolean {
     /(?:安全试用|开箱演示|演示产品|试用一下|体验一下|跑个演示|开个演示|先体验)/i.test(request) ||
     /(?:先|给我|帮我).*(?:开|做|跑|生成).*(?:演示|demo)/i.test(request) ||
     /(?:不用|不想).*(?:配置|授权|模型).*(?:先)?(?:体验|试用|看看)/i.test(request);
+}
+
+function isUndoRequest(request: string): boolean {
+  return /(?:撤回|撤销|回退|还原|恢复).*(?:上次|刚才|刚刚|最近).*(?:成果|改动|修改|保存|版本)?/.test(request) ||
+    /(?:上次|刚才|刚刚|最近).*(?:改错|不要|不想要|做错|效果不对)/.test(request) ||
+    /^(?:undo|rollback|revert)$/i.test(request.trim());
 }
 
 function isHarnessMethodRequest(request: string): boolean {

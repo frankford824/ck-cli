@@ -67,6 +67,17 @@ export interface MergePrResult {
   message: string;
 }
 
+export interface GitCommitSummary {
+  hash: string;
+  message: string;
+}
+
+export interface GitRevertResult {
+  reverted: boolean;
+  commit?: GitCommitSummary;
+  message: string;
+}
+
 export class ShellTool {
   async run(
     command: string,
@@ -185,6 +196,16 @@ export class GitTool {
     return (await this.status(cwd)).length > 0;
   }
 
+  async lastCommit(cwd: string): Promise<GitCommitSummary | undefined> {
+    const result = await runShell("git log -1 --pretty=format:%h%x09%s", cwd, 30_000).catch(() => undefined);
+    const line = result?.stdout.trim();
+    if (!line || result?.exitCode !== 0) {
+      return undefined;
+    }
+    const [hash, ...messageParts] = line.split("\t");
+    return hash ? { hash, message: messageParts.join("\t").trim() || "未命名成果" } : undefined;
+  }
+
   async commitAll(message: string, context: ToolContext): Promise<boolean> {
     if (!(await this.hasChanges(context.cwd))) {
       await context.audit?.record("tool.git.commit.skip", "没有需要保存的新成果");
@@ -198,6 +219,33 @@ export class GitTool {
       "保存成果失败"
     );
     return true;
+  }
+
+  async revertLastCommit(context: ToolContext): Promise<GitRevertResult> {
+    if (!(await this.isRepo(context.cwd))) {
+      return { reverted: false, message: "当前还没有可以撤回的项目成果。" };
+    }
+
+    const commit = await this.lastCommit(context.cwd);
+    if (!commit) {
+      return { reverted: false, message: "还没有可以撤回的已保存成果。" };
+    }
+
+    if (await this.hasChanges(context.cwd)) {
+      throw new Error("当前还有未保存改动。请先保存或处理后再撤回。");
+    }
+
+    if (await this.isMergeHead(context.cwd)) {
+      throw new Error("最新成果是合并记录，不能自动撤回。请先查看团队审查入口。");
+    }
+
+    await this.ensureLocalIdentity(context.cwd);
+    assertCommandOk(
+      await this.shell.run("git revert --no-edit HEAD", { ...context, kind: "git-commit", confirmed: true }),
+      "撤回上次成果失败"
+    );
+    await context.audit?.record("tool.git.revert.done", "已撤回上次保存的成果", commit);
+    return { reverted: true, commit, message: "已撤回上次保存的成果。" };
   }
 
   async pushCurrent(context: ToolContext): Promise<void> {
@@ -256,6 +304,12 @@ export class GitTool {
       runShell(`git rev-parse --verify ${quote(`origin/${branch}`)}`, cwd, 30_000).catch(() => undefined)
     ]);
     return Boolean(head?.stdout.trim() && head?.stdout.trim() === remote?.stdout.trim());
+  }
+
+  private async isMergeHead(cwd: string): Promise<boolean> {
+    const result = await runShell("git rev-list --parents -n 1 HEAD", cwd, 30_000).catch(() => undefined);
+    const parts = result?.stdout.trim().split(/\s+/).filter(Boolean) ?? [];
+    return parts.length > 2;
   }
 
   private async pushWithGithubCliToken(branch: string, context: ToolContext): Promise<CommandResult | undefined> {
