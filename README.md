@@ -20,6 +20,7 @@
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli home` 提供老板开箱驾驶舱：当前状态、最建议动作、可选动作和常见模板放在一个中文首页。
 - `ccli brief` 提供老板业务简报：把一句话想法整理成目标、使用者、首版范围和验收标准。
+- `ccli approve` 提供老板验收凭证：记录“我已看过并通过”，交付时自动带上凭证。
 - `ccli report` 提供老板交付卡：把当前产品、目标、进展依据和下一步说法压成一页中文汇报。
 - `ccli try` 提供安全试用入口：不用模型授权、不改当前目录，直接生成一个演示产品并可打开页面。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
@@ -50,6 +51,7 @@ ccli
 ccli home
 ccli brief "做一个客户管理系统，能记录跟进和提醒"
 ccli report
+ccli approve "首屏和提醒逻辑可以"
 ccli try --no-preview
 ccli ready
 ccli resume
@@ -133,6 +135,7 @@ ccli status
 ccli resume
 ccli brief
 ccli report
+ccli approval
 ccli undo
 ccli review
 ccli pr --yes
@@ -151,6 +154,7 @@ ccli "取消"
 ccli memory search "登录页面" --expert
 ccli hardware --expert
 ccli hardware "整理业务简报：做一个客户管理系统，能记录跟进和提醒" --json
+ccli hardware "记录验收通过：首屏和提醒逻辑可以" --json
 ccli hardware "给我一个进度汇报" --json
 ccli hardware "下一步怎么办" --json
 ```
@@ -252,7 +256,15 @@ ccli accept
 ccli "怎么验收当前产品"
 ```
 
-不满意就直接说想改哪里；满意后再说“我满意，准备交付”。
+不满意就直接说想改哪里；满意时可以先记录验收凭证：
+
+```bash
+ccli approve "首屏和提醒逻辑可以"
+ccli "记录验收通过：首屏和提醒逻辑可以"
+ccli approval
+```
+
+`approve` 只记录老板已验收，不会自动交付、发布或合并。确认要交付时再说“我满意，准备交付”。
 
 也可以显式提交修改意见：
 
@@ -526,6 +538,7 @@ ccli harness --expert
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
 - 老板业务简报，可用 `ccli brief --json` 读取
+- 老板验收凭证，可用 `ccli approval --json` 读取
 - 老板交付卡，可用 `ccli report --json` 读取
 - 开箱准备向导，可用 `ccli ready --json` 读取
 - 任务恢复向导，可用 `ccli resume --json` 读取
@@ -545,6 +558,7 @@ ccli harness --expert
 ```bash
 ccli hardware "下一步怎么办" --json
 ccli hardware "整理业务简报：做一个客户管理系统，能记录跟进和提醒" --json
+ccli hardware "记录验收通过：首屏和提醒逻辑可以" --json
 ccli hardware "给我一个进度汇报" --json
 ccli hardware "开箱准备" --json
 ccli hardware "继续上次任务" --json

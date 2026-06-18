@@ -97,6 +97,18 @@ export interface AcceptanceGuide {
   ask: string;
 }
 
+export interface BossApprovalReceipt {
+  title: string;
+  summary: string;
+  productName?: string;
+  goal?: string;
+  approvedAt: string;
+  note?: string;
+  proof: string[];
+  actions: NextAction[];
+  ask: string;
+}
+
 export interface BossBrief {
   title: string;
   summary: string;
@@ -474,6 +486,85 @@ export function renderAcceptanceGuide(guide: AcceptanceGuide): string {
   return lines.join("\n").trim();
 }
 
+export function createBossApprovalReceipt(input: {
+  productName?: string;
+  goal?: string;
+  checks?: AcceptanceCheck[];
+  note?: string;
+  approvedAt?: string;
+}): BossApprovalReceipt {
+  const productName = cleanText(input.productName);
+  const goal = cleanText(input.goal);
+  const note = cleanText(input.note);
+  const approvedAt = input.approvedAt ?? new Date().toISOString();
+  const subject = productName ? `「${productName}」` : "当前产品";
+  const proof = uniqueStrings([
+    goal ? `业务目标：${goal}` : undefined,
+    ...(input.checks?.slice(0, 4).map((check) => `已按「${check.title}」验收：${check.passHint}`) ?? []),
+    note ? `老板备注：${note}` : undefined
+  ]);
+
+  return {
+    title: "老板验收凭证",
+    summary: `${subject}已记录为验收通过。`,
+    productName,
+    goal,
+    approvedAt,
+    note,
+    proof: proof.length ? proof : ["老板已确认当前结果可以进入交付。"],
+    actions: [
+      {
+        id: "finish-current",
+        title: "准备交付",
+        reason: "验收已通过，可以进入审查、保存和合并。",
+        say: "我满意，准备交付"
+      },
+      {
+        id: "report-current",
+        title: "查看交付卡",
+        reason: "把当前成果、验收和下一步汇总给老板看。",
+        say: "给我一个进度汇报"
+      },
+      {
+        id: "revise-current",
+        title: "继续修改",
+        reason: "如果验收后又想到调整，仍然可以继续补充。",
+        say: "我想改一下："
+      }
+    ],
+    ask: "如果确认要交付，就直接说：我满意，准备交付。"
+  };
+}
+
+export function renderBossApprovalReceipt(receipt: BossApprovalReceipt): string {
+  const lines = [receipt.title, "", receipt.summary];
+  if (receipt.productName) {
+    lines.push(`产品：${receipt.productName}`);
+  }
+  if (receipt.goal) {
+    lines.push(`目标：${receipt.goal}`);
+  }
+  lines.push(`通过时间：${formatDisplayDate(receipt.approvedAt)}`);
+  if (receipt.note) {
+    lines.push(`老板备注：${receipt.note}`);
+  }
+
+  lines.push("", "验收依据：");
+  for (const [index, item] of receipt.proof.entries()) {
+    lines.push(`${index + 1}. ${item}`);
+  }
+
+  lines.push("", "下一步可以直接说：");
+  for (const [index, action] of receipt.actions.entries()) {
+    lines.push(`${index + 1}. ${action.title}`);
+    lines.push(`原因：${action.reason}`);
+    lines.push(`直接说：${action.say}`);
+  }
+
+  lines.push("", receipt.ask);
+  return lines.join("\n").trim();
+}
+
 export function createBossBrief(input: {
   goal: string;
   productName?: string;
@@ -790,6 +881,7 @@ export function createBossReportCard(input: {
   canPreview?: boolean;
   nextActions?: NextAction[];
   auditSummary?: string;
+  approvalSummary?: string;
 }): BossReportCard {
   const productName = cleanText(input.productName);
   const goal = cleanText(input.goal);
@@ -797,6 +889,7 @@ export function createBossReportCard(input: {
   const progressSummary = cleanText(input.progress?.summary);
   const stateSummary = cleanText(input.state?.summary);
   const auditSummary = cleanText(input.auditSummary);
+  const approvalSummary = cleanText(input.approvalSummary);
   const hasAnyRecord = Boolean(productName || goal || task || input.progress || input.state);
   const status = reportStatus(input, hasAnyRecord);
   const subject = productName ? `「${productName}」` : "当前产品";
@@ -811,7 +904,7 @@ export function createBossReportCard(input: {
   const focus =
     status === "empty"
       ? "先确定要做哪个业务产品，让 ccli 生成一个可以看的首版。"
-      : progressSummary ?? stateSummary ?? auditSummary ?? goal ?? task ?? "先打开当前结果，看是否符合业务目标。";
+      : approvalSummary ?? progressSummary ?? stateSummary ?? auditSummary ?? goal ?? task ?? "先打开当前结果，看是否符合业务目标。";
 
   return {
     title: "老板交付卡",
@@ -827,7 +920,8 @@ export function createBossReportCard(input: {
       progress: input.progress,
       state: input.state,
       canPreview: input.canPreview,
-      auditSummary
+      auditSummary,
+      approvalSummary
     }),
     actions: (input.nextActions?.length ? input.nextActions : defaultReportActions(status, Boolean(input.canPreview))).slice(0, 5),
     ask: status === "empty" ? "不知道怎么开始，就直接说：试用一下。" : "不确定下一步，就直接说：下一步怎么办。"
@@ -907,6 +1001,7 @@ export function hardwareManifest() {
       "control-help",
       "control-cancelled",
       "brief-card",
+      "approval-receipt",
       "report-card",
       "acceptance-guide",
       "revision-request",
@@ -917,7 +1012,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "resume", "brief", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "brief", "approval", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -959,6 +1054,7 @@ export function hardwareSchema() {
       "control-help",
       "control-cancelled",
       "brief-card",
+      "approval-receipt",
       "report-card",
       "next-action",
       "idea-catalog",
@@ -1093,6 +1189,32 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "brief-card" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "success",
+        say: "当前产品已记录为验收通过。",
+        screen: "老板验收凭证\n\n当前产品已记录为验收通过。\n产品：客户跟进系统\n目标：记录客户、跟进和提醒\n\n下一步可以直接说：\n1. 准备交付\n直接说：我满意，准备交付\n2. 查看交付卡\n直接说：给我一个进度汇报",
+        choices: ["准备交付", "查看交付卡", "继续修改"],
+        actions: [
+          {
+            id: "finish-current",
+            label: "准备交付",
+            kind: "utterance",
+            say: "我满意，准备交付",
+            requiresConfirmation: true
+          },
+          {
+            id: "report-current",
+            label: "查看交付卡",
+            kind: "utterance",
+            say: "给我一个进度汇报",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "approval-receipt" }
     ),
     createHardwareResponse(
       createExperienceEvent({
@@ -1275,10 +1397,12 @@ function reportProof(input: {
   state?: ResumeStateSnapshot;
   canPreview?: boolean;
   auditSummary?: string;
+  approvalSummary?: string;
 }): string[] {
   const proof = [
     input.productName ? `已识别当前产品：${input.productName}` : undefined,
     input.goal ? `已记录业务目标：${input.goal}` : undefined,
+    input.approvalSummary,
     input.task ? `最近任务：${input.task}` : undefined,
     input.progress?.updatedAt ? `最近记录时间：${formatDisplayDate(input.progress.updatedAt)}` : undefined,
     input.canPreview === true ? "已有本地页面可以打开验收。" : undefined,

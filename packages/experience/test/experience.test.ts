@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createAcceptanceGuide,
+  createBossApprovalReceipt,
   createBossBrief,
   createBossHome,
   createBossReportCard,
@@ -13,6 +14,7 @@ import {
   hardwareSchema,
   healthSummary,
   renderAcceptanceGuide,
+  renderBossApprovalReceipt,
   renderBossBrief,
   renderBossHome,
   renderBossReportCard,
@@ -187,6 +189,30 @@ describe("experience", () => {
     expect(text).not.toContain("```");
   });
 
+  it("renders a boss approval receipt for sign-off", () => {
+    const receipt = createBossApprovalReceipt({
+      productName: "客户跟进系统",
+      goal: "记录客户、跟进和提醒",
+      checks: createAcceptanceGuide({
+        productName: "客户跟进系统",
+        goal: "记录客户、跟进和提醒",
+        canPreview: true
+      }).checks,
+      note: "首屏和提醒逻辑可以",
+      approvedAt: "2026-06-18T10:00:00.000Z"
+    });
+    const text = renderBossApprovalReceipt(receipt);
+
+    expect(text).toContain("老板验收凭证");
+    expect(text).toContain("已记录为验收通过");
+    expect(text).toContain("客户跟进系统");
+    expect(text).toContain("验收依据");
+    expect(text).toContain("直接说：我满意，准备交付");
+    expect(text).not.toContain("diff");
+    expect(text).not.toContain("stack");
+    expect(text).not.toContain("```");
+  });
+
   it("renders a boss report card for non-technical delivery status", () => {
     const card = createBossReportCard({
       productName: "客户跟进系统",
@@ -257,6 +283,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
     expect(hardwareManifest().output).toContain("brief-card");
+    expect(hardwareManifest().output).toContain("approval-receipt");
     expect(hardwareManifest().output).toContain("report-card");
     expect(hardwareManifest().output).toContain("acceptance-guide");
     expect(hardwareManifest().output).toContain("revision-request");
@@ -281,6 +308,7 @@ describe("experience", () => {
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
     expect(schema.kinds).toContain("brief-card");
+    expect(schema.kinds).toContain("approval-receipt");
     expect(schema.kinds).toContain("report-card");
     expect(schema.kinds).toContain("revision-request");
     expect(schema.kinds).toContain("delivery-confirmation");
@@ -291,6 +319,7 @@ describe("experience", () => {
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "brief-card")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "approval-receipt")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "report-card")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "try-demo")).toBe(true);
