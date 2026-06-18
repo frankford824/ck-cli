@@ -18,6 +18,7 @@
 - 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环、`.ccli/progress.json` 进度落盘和失败经验库。
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
+- `ccli home` 提供老板开箱驾驶舱：当前状态、最建议动作、可选动作和常见模板放在一个中文首页。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
 - `ccli ideas` 提供老板可直接开工的产品场景库，支持按编号或名称直接生成产品，也支持硬件读取结构化场景。
 - `ccli next` 会根据当前项目、最近产品和任务状态给出下一步建议，也支持硬件读取结构化建议。
@@ -43,6 +44,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 
 ```bash
 ccli
+ccli home
 ccli setup
 ccli go "做一个客户管理系统，能记录跟进和提醒" --no-preview
 ccli doctor
@@ -52,13 +54,13 @@ ccli preview --install --check
 如果要在 PR 分支上提前试用：
 
 ```bash
-CCLI_REF=codex/boss-first-experience bash -c "$(curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/codex/boss-first-experience/install.sh)"
+CCLI_REF=你的分支名 bash -c "$(curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/你的分支名/install.sh)"
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:CCLI_REF="codex/boss-first-experience"; irm https://raw.githubusercontent.com/frankford824/ck-cli/codex/boss-first-experience/install.ps1 | iex
+$env:CCLI_REF="你的分支名"; irm https://raw.githubusercontent.com/frankford824/ck-cli/你的分支名/install.ps1 | iex
 ```
 
 前置要求：
@@ -97,6 +99,7 @@ pnpm dev --help
 
 ```bash
 ccli
+ccli home
 ccli setup
 ccli next
 ccli go "做一个客户管理系统"
@@ -135,6 +138,14 @@ ccli hardware "下一步怎么办" --json
 ## 老板上手方式
 
 安装后直接输入：
+
+```bash
+ccli home
+```
+
+它会把当前状态、最建议动作、可选动作和常见开工模板放在同一个中文首页。
+
+首次设置可以继续输入：
 
 ```bash
 ccli setup
@@ -408,6 +419,7 @@ ccli harness --expert
 - 可选按钮/选择项
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
+- 老板开箱驾驶舱，可用 `ccli home --json` 读取
 - 产品场景库，可用 `ccli ideas --json` 读取
 - 下一步建议，可用 `ccli next --json` 读取
 - 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
@@ -418,6 +430,7 @@ ccli harness --expert
 
 ```bash
 ccli hardware "下一步怎么办" --json
+ccli hardware "我第一次用怎么开始" --json
 ccli hardware "给我几个产品模板" --json
 ccli hardware "做一个库存看板，能看低库存" --json
 ccli hardware "查看我的产品" --json

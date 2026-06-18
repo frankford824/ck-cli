@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { createExperienceEvent, createHardwareResponse, hardwareManifest, healthSummary, renderNextActions, renderStarterIdeas, renderWelcome, speechText, starterIdeas } from "../src/index.js";
+import {
+  createBossHome,
+  createExperienceEvent,
+  createHardwareResponse,
+  hardwareManifest,
+  healthSummary,
+  renderBossHome,
+  renderNextActions,
+  renderStarterIdeas,
+  renderWelcome,
+  speechText,
+  starterIdeas
+} from "../src/index.js";
 
 describe("experience", () => {
   it("renders boss-friendly welcome copy", () => {
     const text = renderWelcome();
 
     expect(text).toContain("中文开发管家");
+    expect(text).toContain("ccli home");
     expect(text).toContain("ccli setup");
     expect(text).toContain("ccli next");
     expect(text).toContain("ccli go");
@@ -62,6 +75,36 @@ describe("experience", () => {
     expect(text).toContain("也可以执行");
   });
 
+  it("renders a boss home without exposing commands", () => {
+    const home = createBossHome({
+      health: healthSummary([
+        { name: "运行环境", status: "ready", userMessage: "可以正常使用。" },
+        { name: "模型授权", status: "action-needed", userMessage: "还需要设置。" }
+      ]),
+      nextPlan: {
+        summary: "当前还没有产品，建议先从一个常见场景直接开工。",
+        actions: [
+          {
+            id: "ideas",
+            title: "从模板直接开工",
+            reason: "选一个常见场景最快能看到首版。",
+            say: "给我几个产品模板",
+            command: "ccli ideas"
+          }
+        ]
+      },
+      ideas: starterIdeas()
+    });
+    const text = renderBossHome(home);
+
+    expect(text).toContain("老板开箱驾驶舱");
+    expect(text).toContain("现在最建议做");
+    expect(text).toContain("直接说");
+    expect(text).toContain("常见开工模板");
+    expect(text).not.toContain("ccli ideas");
+    expect(home.primary.command).toBe("ccli ideas");
+  });
+
   it("keeps a future hardware protocol explicit", () => {
     const event = createExperienceEvent({
       tone: "success",
@@ -77,6 +120,7 @@ describe("experience", () => {
     expect(response.event.actions?.[0]?.label).toBe("下一步");
     expect(hardwareManifest().output).toContain("speech");
     expect(hardwareManifest().output).toContain("action-button");
+    expect(hardwareManifest().output).toContain("boss-home");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");

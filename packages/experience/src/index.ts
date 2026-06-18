@@ -60,6 +60,23 @@ export interface NextActionPlan {
   actions: NextAction[];
 }
 
+export interface BossHomeTemplate {
+  id: string;
+  title: string;
+  outcome: string;
+  say: string;
+}
+
+export interface BossHome {
+  title: string;
+  summary: string;
+  readiness: string;
+  primary: NextAction;
+  actions: NextAction[];
+  templates: BossHomeTemplate[];
+  ask: string;
+}
+
 export type HealthStatus = "ready" | "action-needed" | "optional";
 
 export interface HealthCheckItem {
@@ -79,6 +96,7 @@ export function welcomeCard(): WelcomeCard {
     title: "ccli 中文开发管家",
     summary: "你只需要说清楚想要的结果，ccli 负责规划、开发、验证、审查和交付。",
     nextActions: [
+      "开箱首页：ccli home",
       "首次设置：ccli setup",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
@@ -104,6 +122,7 @@ export function welcomeCard(): WelcomeCard {
       "把首页改得更像高端咨询公司",
       "给客户列表增加搜索和导出",
       "检查这个项目为什么不能正常启动",
+      "我第一次用，怎么开始",
       "把本次改动自动审查并合并"
     ]
   };
@@ -204,6 +223,80 @@ export function renderNextActions(plan: NextActionPlan): string {
   return lines.join("\n").trim();
 }
 
+export function createBossHome(input: {
+  health: HealthReport;
+  nextPlan: NextActionPlan;
+  ideas?: StarterIdea[];
+}): BossHome {
+  const actionNeeded = input.health.items.filter((item) => item.status === "action-needed").length;
+  const ready = input.health.items.filter((item) => item.status === "ready").length;
+  const ideas = input.ideas ?? starterIdeas();
+  const primary = input.nextPlan.actions[0] ?? {
+    id: "ideas",
+    title: "从产品模板开始",
+    reason: "当前还没有明确产品，选一个常见场景最快能看到首版。",
+    say: "给我几个产品模板",
+    command: "ccli ideas"
+  };
+  const readiness =
+    actionNeeded > 0
+      ? `还有 ${actionNeeded} 项准备工作会影响完整体验，但现在仍可以先创建产品。`
+      : `当前已有 ${ready} 项能力就绪，可以直接开始。`;
+
+  return {
+    title: "老板开箱驾驶舱",
+    summary: input.nextPlan.summary,
+    readiness,
+    primary,
+    actions: input.nextPlan.actions.slice(0, 4),
+    templates: ideas.slice(0, 3).map((idea) => ({
+      id: idea.id,
+      title: idea.title,
+      outcome: idea.outcome,
+      say: idea.say
+    })),
+    ask: "不知道怎么选，就直接说：下一步怎么办。"
+  };
+}
+
+export function renderBossHome(home: BossHome): string {
+  const lines = [
+    home.title,
+    "",
+    `当前状态：${home.readiness}`,
+    `建议：${home.summary}`,
+    "",
+    "现在最建议做：",
+    `1. ${home.primary.title}`,
+    `原因：${home.primary.reason}`,
+    `直接说：${home.primary.say}`,
+    ""
+  ];
+
+  if (home.actions.length > 1) {
+    lines.push("也可以选：");
+    for (const [index, action] of home.actions.slice(1).entries()) {
+      lines.push(`${index + 2}. ${action.title}`);
+      lines.push(`原因：${action.reason}`);
+      lines.push(`直接说：${action.say}`);
+    }
+    lines.push("");
+  }
+
+  if (home.templates.length) {
+    lines.push("常见开工模板：");
+    for (const [index, template] of home.templates.entries()) {
+      lines.push(`${index + 1}. ${template.title}`);
+      lines.push(`结果：${template.outcome}`);
+      lines.push(`直接说：${template.say}`);
+    }
+    lines.push("");
+  }
+
+  lines.push(home.ask);
+  return lines.join("\n").trim();
+}
+
 export function healthSummary(items: HealthCheckItem[]): HealthReport {
   const actionCount = items.filter((item) => item.status === "action-needed").length;
   const summary =
@@ -255,8 +348,8 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice", "action-button", "project-catalog", "idea-catalog", "next-action"],
-    events: ["welcome", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    output: ["speech", "screen", "choice", "action-button", "boss-home", "project-catalog", "idea-catalog", "next-action"],
+    events: ["welcome", "home", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
