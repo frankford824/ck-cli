@@ -20,6 +20,7 @@
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
 - `ccli ideas` 提供老板可直接开工的产品场景库，支持按编号或名称直接生成产品，也支持硬件读取结构化场景。
+- `ccli next` 会根据当前项目、最近产品和任务状态给出下一步建议，也支持硬件读取结构化建议。
 - 本机项目库会记住创建过的产品，后续可用 `ccli projects` 查看、`ccli open` 打开最近产品。
 
 ## 一键安装
@@ -97,6 +98,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli setup
+ccli next
 ccli go "做一个客户管理系统"
 ccli ideas
 ccli ideas 3
@@ -133,6 +135,13 @@ ccli hardware --expert
 
 ```bash
 ccli setup
+```
+
+不知道下一步做什么时：
+
+```bash
+ccli next
+ccli "下一步怎么办"
 ```
 
 不知道先做什么时：
@@ -376,6 +385,7 @@ ccli harness --expert
 - 可选按钮/选择项
 - 产品清单
 - 产品场景库，可用 `ccli ideas --json` 读取
+- 下一步建议，可用 `ccli next --json` 读取
 
 协议不暴露代码、命令、路径和堆栈，保证用户体验保持普通中文产品语义。
 

@@ -8,14 +8,25 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
-import { hardwareManifest, healthSummary, renderHealthReport, renderStarterIdeas, renderWelcome, starterIdeas, type StarterIdea } from "@ccli/experience";
+import {
+  hardwareManifest,
+  healthSummary,
+  renderHealthReport,
+  renderNextActions,
+  renderStarterIdeas,
+  renderWelcome,
+  starterIdeas,
+  type NextAction,
+  type NextActionPlan,
+  type StarterIdea
+} from "@ccli/experience";
 import { analyzeHarnessReadiness, loadHarnessContext, readHarnessProgress, renderHarnessReadiness, renderHarnessSummary } from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
 import { ProductRenderer } from "@ccli/product-ui";
 import { createDefaultProviderRegistry, loadCcliConfig, type CcliConfig } from "@ccli/providers";
 import { ReviewerAgent } from "@ccli/review";
-import { AuditSession, readLatestAuditSummary, readState } from "@ccli/session";
+import { AuditSession, readLatestAuditSummary, readState, type CcliState } from "@ccli/session";
 import { installHarnessSkills } from "@ccli/templates";
 import { createTemplateProject, GitHubTool, GitTool, ProjectTool } from "@ccli/tools";
 
@@ -271,6 +282,21 @@ program
   .action(async (options: { json?: boolean }) => {
     await withCli(async ({ renderer, expert }) => {
       await renderKnownProjects({ renderer, expert, json: Boolean(options.json) });
+    });
+  });
+
+program
+  .command("next")
+  .description("根据当前情况给出下一步建议")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const plan = await buildNextActionPlan(cwd);
+      if (options.json) {
+        print(JSON.stringify(plan, null, 2));
+        return;
+      }
+      print(renderNextActions(plan));
     });
   });
 
@@ -835,6 +861,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isNextActionRequest(request)) {
+    print(renderNextActions(await buildNextActionPlan(inputValue.cwd)));
+    return true;
+  }
+
   const ideaKey = ideaKeyFromNaturalRequest(request);
   if (ideaKey) {
     await launchStarterIdea({
@@ -883,6 +914,116 @@ async function runNaturalLanguageIntent(inputValue: {
   }
 
   return false;
+}
+
+async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
+  const [projects, state, readiness] = await Promise.all([
+    readProjectRegistry(),
+    readState(cwd).catch(() => undefined),
+    previewReadiness(cwd).catch(() => undefined)
+  ]);
+
+  const actions: NextAction[] = [];
+  if (state?.status === "failed") {
+    actions.push({
+      id: "status",
+      title: "先看失败影响",
+      reason: "上一次任务没有完成，先看中文状态可以避免继续叠加问题。",
+      say: "查看当前任务进度",
+      command: "ccli status"
+    });
+    actions.push({
+      id: "audit",
+      title: "让系统保留问题线索",
+      reason: "技术细节已经在本地审计记录里，专家模式可以追溯原因。",
+      say: "查看最近审计摘要",
+      command: "ccli audit --expert"
+    });
+  }
+
+  if (readiness?.canPreview) {
+    actions.push({
+      id: "preview-current",
+      title: "先打开当前产品",
+      reason: "当前目录已经是可以预览的产品，先看效果最容易判断下一步。",
+      say: "打开当前产品页面",
+      command: readiness.hasDependencies ? "ccli preview" : "ccli preview --install"
+    });
+    actions.push({
+      id: "improve-current",
+      title: "继续改当前产品",
+      reason: state?.status === "done" ? "最近一次任务已保存，可以继续用中文提出下一个改动。" : "当前项目已经具备产品结构，可以直接说想改哪里。",
+      say: "把这个产品再改得更适合我的业务",
+      command: "ccli chat"
+    });
+  }
+
+  if (projects.length) {
+    const latest = projects[0];
+    actions.push({
+      id: "open-latest",
+      title: "打开最近产品",
+      reason: `最近保存的产品是「${latest.name}」，先打开它可以直接接着验收或修改。`,
+      say: "打开我上次做的系统",
+      command: "ccli open"
+    });
+    actions.push({
+      id: "project-list",
+      title: "查看所有产品",
+      reason: "如果你不确定要继续哪个产品，可以先看产品列表。",
+      say: "查看我的产品",
+      command: "ccli projects"
+    });
+  }
+
+  const hasCurrentProduct = Boolean(readiness?.canPreview);
+  actions.push({
+    id: "starter-ideas",
+    title: projects.length || hasCurrentProduct ? "新开一个产品" : "从模板直接开工",
+    reason: hasCurrentProduct
+      ? "如果当前产品先放一边，选一个模板可以快速开始新的业务方向。"
+      : projects.length
+        ? "如果这是一个新业务方向，选模板比从空白描述更快。"
+        : "当前还没有产品，选一个常见场景最快能看到首版。",
+    say: "给我几个产品模板",
+    command: "ccli ideas"
+  });
+
+  actions.push({
+    id: "doctor",
+    title: "检查电脑环境",
+    reason: "如果预览、安装或模型授权不稳定，先做一次中文体检。",
+    say: "检查当前电脑是否准备好",
+    command: "ccli doctor"
+  });
+
+  const unique = uniqueNextActions(actions).slice(0, 4);
+  const summary = nextActionSummary({ state, canPreview: Boolean(readiness?.canPreview), projectCount: projects.length });
+  return { summary, actions: unique };
+}
+
+function uniqueNextActions(actions: NextAction[]): NextAction[] {
+  const seen = new Set<string>();
+  return actions.filter((action) => {
+    if (seen.has(action.id)) {
+      return false;
+    }
+    seen.add(action.id);
+    return true;
+  });
+}
+
+function nextActionSummary(inputValue: { state?: CcliState; canPreview: boolean; projectCount: number }): string {
+  if (inputValue.state?.status === "failed") {
+    return "建议先处理上一次任务的问题，再继续开发。";
+  }
+  if (inputValue.canPreview) {
+    return "建议先打开当前产品看效果，再决定要改哪里。";
+  }
+  if (inputValue.projectCount > 0) {
+    return "你已经有产品记录，建议先打开最近产品继续。";
+  }
+  return "当前还没有产品，建议先从一个常见场景直接开工。";
 }
 
 async function launchStarterIdea(inputValue: {
@@ -1052,6 +1193,12 @@ function isProjectOpenCheckRequest(request: string): boolean {
     /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request) ||
     /(?:检查|确认|看看).*(?:上次|最近|之前|产品|项目|应用|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request)
   );
+}
+
+function isNextActionRequest(request: string): boolean {
+  return /(?:下一步|接下来|现在).*(?:怎么办|做什么|干嘛|该做|建议)/.test(request) ||
+    /(?:我该|该我|帮我).*(?:做什么|干嘛|下一步|接下来)/.test(request) ||
+    /(?:给我|看看|推荐).*(?:下一步|后续|接下来).*(?:建议|动作)?/.test(request);
 }
 
 function isIdeaCatalogRequest(request: string): boolean {

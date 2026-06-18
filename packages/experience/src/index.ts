@@ -27,6 +27,19 @@ export interface StarterIdea {
   firstCheck: string;
 }
 
+export interface NextAction {
+  id: string;
+  title: string;
+  reason: string;
+  say: string;
+  command?: string;
+}
+
+export interface NextActionPlan {
+  summary: string;
+  actions: NextAction[];
+}
+
 export type HealthStatus = "ready" | "action-needed" | "optional";
 
 export interface HealthCheckItem {
@@ -47,6 +60,7 @@ export function welcomeCard(): WelcomeCard {
     summary: "你只需要说清楚想要的结果，ccli 负责规划、开发、验证、审查和交付。",
     nextActions: [
       "首次设置：ccli setup",
+      "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
       "不知道做什么：ccli ideas",
       "直接选模板：ccli ideas 3",
@@ -62,6 +76,7 @@ export function welcomeCard(): WelcomeCard {
     ],
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
+      "下一步怎么办",
       "给我几个产品模板",
       "做第 3 个模板",
       "一键做一个门店预约系统并打开页面",
@@ -155,6 +170,20 @@ export function renderStarterIdeas(ideas: StarterIdea[] = starterIdeas()): strin
   return lines.join("\n").trim();
 }
 
+export function renderNextActions(plan: NextActionPlan): string {
+  const lines = [plan.summary, ""];
+  for (const [index, action] of plan.actions.entries()) {
+    lines.push(`${index + 1}. ${action.title}`);
+    lines.push(`原因：${action.reason}`);
+    lines.push(`直接说：${action.say}`);
+    if (action.command) {
+      lines.push(`也可以执行：${action.command}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
 export function healthSummary(items: HealthCheckItem[]): HealthReport {
   const actionCount = items.filter((item) => item.status === "action-needed").length;
   const summary =
@@ -196,8 +225,8 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice", "project-catalog", "idea-catalog"],
-    events: ["welcome", "ask", "idea", "progress", "risk", "success", "blocked"],
+    output: ["speech", "screen", "choice", "project-catalog", "idea-catalog", "next-action"],
+    events: ["welcome", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
