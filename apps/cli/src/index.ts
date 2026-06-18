@@ -19,6 +19,7 @@ import {
   renderWelcome,
   speechText,
   starterIdeas,
+  type ExperienceAction,
   type NextAction,
   type NextActionPlan,
   type StarterIdea
@@ -842,17 +843,43 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
   };
 }
 
+function choicesFromActions(actions: ExperienceAction[]): string[] {
+  return actions.map((action) => action.label);
+}
+
+function utteranceAction(id: string, label: string, say: string, description?: string, requiresConfirmation = false): ExperienceAction {
+  return { id, label, kind: "utterance", say, description, requiresConfirmation };
+}
+
+function commandAction(id: string, label: string, command: string, description?: string, requiresConfirmation = false): ExperienceAction {
+  return { id, label, kind: "command", command, description, requiresConfirmation };
+}
+
+function nextPlanActions(plan: NextActionPlan): ExperienceAction[] {
+  return plan.actions.map((action) =>
+    action.command
+      ? commandAction(action.id, action.title, action.command, action.reason)
+      : utteranceAction(action.id, action.title, action.say, action.reason)
+  );
+}
+
 async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance: string }) {
   const utterance = inputValue.utterance.trim();
   if (!utterance) {
     const welcome = renderWelcome();
+    const actions = [
+      utteranceAction("next", "下一步怎么办", "下一步怎么办"),
+      utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),
+      utteranceAction("open-latest", "打开我上次做的系统", "打开我上次做的系统")
+    ];
     return createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "calm",
         say: "你可以说下一步怎么办，或者说给我几个产品模板。",
         screen: welcome,
-        choices: ["下一步怎么办", "给我几个产品模板", "打开我上次做的系统"]
+        choices: choicesFromActions(actions),
+        actions
       }),
       { kind: "welcome" }
     );
@@ -860,13 +887,15 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
 
   if (isNextActionRequest(utterance)) {
     const plan = await buildNextActionPlan(inputValue.cwd);
+    const actions = nextPlanActions(plan);
     return createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
         say: plan.summary,
         screen: renderNextActions(plan),
-        choices: plan.actions.map((action) => action.say)
+        choices: choicesFromActions(actions),
+        actions
       }),
       { kind: "next-action", plan }
     );
@@ -879,13 +908,23 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     const say = selected
       ? `已选中${selected.title}。如果确认，可以让我开始生成这个产品。`
       : "我给你列出几个常见产品场景，你可以直接说做第几个模板。";
+    const actions = selected
+      ? [
+          utteranceAction("confirm-idea", "开始生成这个产品", selected.say, selected.outcome, true),
+          utteranceAction("change-idea", "换一个模板", "给我几个产品模板"),
+          utteranceAction("next", "下一步怎么办", "下一步怎么办")
+        ]
+      : ideas.map((idea, index) =>
+          utteranceAction(`idea-${idea.id}`, `做第 ${index + 1} 个模板`, `做第 ${index + 1} 个模板`, idea.title, true)
+        );
     return createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
         say,
         screen: selected ? `${selected.title}\n${selected.outcome}\n直接说：${selected.say}` : renderStarterIdeas(ideas),
-        choices: selected ? [selected.say, "换一个模板", "下一步怎么办"] : ideas.map((idea, index) => `做第 ${index + 1} 个模板`)
+        choices: choicesFromActions(actions),
+        actions
       }),
       { kind: "idea-catalog", ideas, selected }
     );
@@ -896,13 +935,20 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     const screen = projects.length
       ? projects.map((project, index) => `${index + 1}. ${project.name}`).join("\n")
       : "还没有保存过产品。";
+    const actions = projects.length
+      ? [
+          utteranceAction("open-latest", "打开我上次做的系统", "打开我上次做的系统"),
+          utteranceAction("next", "下一步怎么办", "下一步怎么办")
+        ]
+      : [utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板")];
     return createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: projects.length ? "calm" : "asking",
         say: projects.length ? `已找到 ${projects.length} 个产品。` : "还没有产品，可以先从模板开工。",
         screen,
-        choices: projects.length ? ["打开我上次做的系统", "下一步怎么办"] : ["给我几个产品模板"]
+        choices: choicesFromActions(actions),
+        actions
       }),
       { kind: "project-catalog", projects: projects.map((project, index) => projectSummary(project, index)) }
     );
@@ -911,25 +957,39 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
   if (isProjectOpenRequest(utterance)) {
     const projects = await readProjectRegistry();
     const latest = projects[0];
+    const actions = latest
+      ? [
+          commandAction("open-latest", "打开最近产品", "ccli open", latest.name),
+          utteranceAction("project-list", "查看我的产品", "查看我的产品"),
+          utteranceAction("next", "下一步怎么办", "下一步怎么办")
+        ]
+      : [utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板")];
     return createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
         tone: latest ? "asking" : "warning",
         say: latest ? `最近的产品是${latest.name}。如果确认，可以在终端打开它。` : "还没有可以打开的产品。",
         screen: latest ? `${latest.name}\n可以执行：ccli open` : "还没有产品，可以先说给我几个产品模板。",
-        choices: latest ? ["打开我上次做的系统", "查看我的产品", "下一步怎么办"] : ["给我几个产品模板"]
+        choices: choicesFromActions(actions),
+        actions
       }),
       { kind: "open-project", latest: latest ? projectSummary(latest, 0) : undefined }
     );
   }
 
+  const actions = [
+    utteranceAction("next", "下一步怎么办", "下一步怎么办"),
+    utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"),
+    utteranceAction("projects", "查看我的产品", "查看我的产品")
+  ];
   return createHardwareResponse(
     createExperienceEvent({
       surface: "hardware",
       tone: "asking",
       say: "我还不能确定你的意思。你可以说下一步怎么办，或者给我几个产品模板。",
       screen: "可用说法：\n下一步怎么办\n给我几个产品模板\n查看我的产品\n打开我上次做的系统",
-      choices: ["下一步怎么办", "给我几个产品模板", "查看我的产品"]
+      choices: choicesFromActions(actions),
+      actions
     }),
     { kind: "fallback", utterance }
   );
