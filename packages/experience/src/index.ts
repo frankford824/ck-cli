@@ -124,6 +124,12 @@ export interface BossBrief {
   ask: string;
 }
 
+export interface BossClarificationAnswers {
+  audience?: string;
+  firstScreen?: string;
+  passCondition?: string;
+}
+
 export interface BossQuestion {
   id: string;
   question: string;
@@ -224,6 +230,7 @@ export function welcomeCard(): WelcomeCard {
       "首次设置：ccli setup",
       "安全试用：ccli try",
       "需求追问：ccli questions \"做一个客户管理系统\"",
+      "沉淀回答：ccli answers \"销售每天用；第一眼看待跟进客户；首版能新增客户并提醒\"",
       "整理业务简报：ccli brief \"做一个客户管理系统\"",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
@@ -242,6 +249,7 @@ export function welcomeCard(): WelcomeCard {
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
       "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒",
+      "我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒",
       "整理业务简报：做一个客户管理系统，能记录跟进和提醒",
       "下一步怎么办",
       "试用一下",
@@ -648,6 +656,54 @@ export function createBossBrief(input: {
     ],
     updatedAt: input.updatedAt,
     ask: "如果简报准确，就直接说目标开始做；如果不准确，就直接说想补充什么。"
+  };
+}
+
+export function createBossBriefFromAnswers(input: {
+  goal: string;
+  productName?: string;
+  answers: BossClarificationAnswers;
+  updatedAt?: string;
+}): BossBrief {
+  const audience = cleanText(input.answers.audience);
+  const firstScreen = cleanText(input.answers.firstScreen);
+  const passCondition = cleanText(input.answers.passCondition);
+  const base = createBossBrief({
+    goal: input.goal,
+    productName: input.productName,
+    audience,
+    updatedAt: input.updatedAt
+  });
+  const productName = base.productName ?? cleanText(input.productName);
+
+  return {
+    ...base,
+    summary: productName ? `已把老板回答沉淀为「${productName}」业务简报。` : "已把老板回答沉淀为可执行的业务简报。",
+    problem:
+      firstScreen || passCondition
+        ? `让${base.audience}打开后先看到${firstScreen ?? "最重要的业务重点"}，并用「${passCondition ?? "老板能看懂、能继续修改"}」判断首版是否通过。`
+        : base.problem,
+    mustHaves: uniqueStrings([
+      firstScreen ? `首屏优先呈现：${firstScreen}。` : undefined,
+      passCondition ? `围绕通过条件设计：${passCondition}。` : undefined,
+      ...base.mustHaves
+    ]).slice(0, 5),
+    acceptance: uniqueStrings([
+      firstScreen ? `打开后第一眼能看到：${firstScreen}。` : undefined,
+      passCondition ? `首版通过条件：${passCondition}。` : undefined,
+      audience ? `${audience}不用解释也能完成最关键判断。` : undefined,
+      ...base.acceptance
+    ]).slice(0, 5),
+    actions: [
+      {
+        id: "start-product",
+        title: "按回答生成首版",
+        reason: "老板回答已经沉淀为业务简报，可以直接开工。",
+        say: base.goal
+      },
+      ...base.actions.filter((action) => action.id !== "start-product")
+    ],
+    ask: "如果这份简报准确，就直接说开始做；如果答案有变化，就继续说：我的回答是。"
   };
 }
 

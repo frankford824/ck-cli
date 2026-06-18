@@ -12,6 +12,7 @@ import {
   createAcceptanceGuide,
   createBossApprovalReceipt,
   createBossBrief,
+  createBossBriefFromAnswers,
   createBossHome,
   createBossQuestionCard,
   createBossReportCard,
@@ -39,6 +40,7 @@ import {
   starterIdeas,
   type BossApprovalReceipt,
   type BossBrief,
+  type BossClarificationAnswers,
   type BossQuestionCard,
   type ExperienceAction,
   type HardwareResponse,
@@ -394,6 +396,29 @@ program
         return;
       }
       print(renderBossQuestionCard(card));
+    });
+  });
+
+program
+  .command("answers")
+  .aliases(["answer", "intake"])
+  .argument("[answer...]", "老板对追问卡的回答")
+  .description("把老板回答整理并保存为业务简报")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (answerParts: string[] | undefined, options: { json?: boolean }) => {
+    await withCli(async ({ cwd, renderer }) => {
+      const answer = answerParts?.join(" ").trim();
+      if (!answer) {
+        print(renderer.render({ type: "info", message: "请直接说回答，例如：我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒。" }));
+        return;
+      }
+      const result = await buildOrSaveBossBriefFromAnswers(cwd, answer);
+      if (options.json) {
+        print(JSON.stringify({ brief: result.brief, answers: result.answers, saved: result.saved }, null, 2));
+        return;
+      }
+      print(renderer.render({ type: "done", message: "老板回答已整理成业务简报，后续开发和验收会围绕它推进。", severity: "success" }));
+      print(renderBossBrief(result.brief));
     });
   });
 
@@ -1327,6 +1352,44 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     ));
   }
 
+  if (isAnswerRequest(utterance)) {
+    const answer = answerTextFromNaturalRequest(utterance);
+    if (!answer) {
+      const actions = [
+        utteranceAction("question-card", "先看追问卡", "帮我澄清需求"),
+        utteranceAction("example-answer", "给一个回答例子", "我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒")
+      ];
+      return finalize(createHardwareResponse(
+        createExperienceEvent({
+          surface: "hardware",
+          tone: "warning",
+          say: "请直接说你的回答，例如谁每天用、第一眼看什么、怎样算首版通过。",
+          screen: "还没有收到可整理的回答。\n可以说：我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒。",
+          choices: choicesFromActions(actions),
+          actions
+        }),
+        { kind: "brief-card", saved: false }
+      ));
+    }
+    const result = await buildOrSaveBossBriefFromAnswers(inputValue.cwd, answer);
+    const actions = [
+      utteranceAction("start-product", "开始生成首版", result.brief.goal, "按这份业务简报生成首版产品。", true),
+      utteranceAction("question-card", "继续追问", "帮我澄清需求"),
+      utteranceAction("acceptance", "按清单验收", "怎么验收当前产品")
+    ];
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "success",
+        say: result.brief.summary,
+        screen: renderBossBrief(result.brief),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "brief-card", brief: result.brief, answers: result.answers, saved: true }
+    ));
+  }
+
   if (isQuestionRequest(utterance)) {
     const card = await buildBossQuestionCard(inputValue.cwd, questionGoalFromNaturalRequest(utterance));
     const actions = questionCardActions(card);
@@ -1725,6 +1788,18 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isAnswerRequest(request)) {
+    const answer = answerTextFromNaturalRequest(request);
+    if (!answer) {
+      print(inputValue.renderer.render({ type: "info", message: "请直接说回答，例如：我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒。" }));
+      return true;
+    }
+    const result = await buildOrSaveBossBriefFromAnswers(inputValue.cwd, answer);
+    print(inputValue.renderer.render({ type: "done", message: "老板回答已整理成业务简报，后续开发和验收会围绕它推进。", severity: "success" }));
+    print(renderBossBrief(result.brief));
+    return true;
+  }
+
   if (isQuestionRequest(request)) {
     print(renderBossQuestionCard(await buildBossQuestionCard(inputValue.cwd, questionGoalFromNaturalRequest(request))));
     return true;
@@ -2028,6 +2103,20 @@ interface BossBriefResult {
   targetCwd: string;
 }
 
+interface BossAnswerResult {
+  brief: BossBrief;
+  answers: BossClarificationAnswers;
+  saved: boolean;
+  workspace?: ProductWorkspace;
+  usedLatest: boolean;
+  targetCwd: string;
+}
+
+interface ParsedBossAnswers extends BossClarificationAnswers {
+  goal?: string;
+  productName?: string;
+}
+
 async function buildOrSaveBossBrief(cwd: string, goal?: string): Promise<BossBriefResult> {
   const workspace = await resolveProductWorkspace(cwd);
   const targetCwd = workspace?.cwd ?? cwd;
@@ -2062,6 +2151,30 @@ async function buildOrSaveBossBrief(cwd: string, goal?: string): Promise<BossBri
   }
 
   return { saved: false, workspace, usedLatest: Boolean(workspace?.usedLatest), targetCwd };
+}
+
+async function buildOrSaveBossBriefFromAnswers(cwd: string, answerText: string): Promise<BossAnswerResult> {
+  const workspace = await resolveProductWorkspace(cwd);
+  const targetCwd = workspace?.cwd ?? cwd;
+  const existing = await readBossBrief(targetCwd).catch(() => undefined);
+  const parsed = parseBossAnswerText(answerText);
+  const goal = parsed.goal ?? existing?.goal ?? workspace?.project?.idea ?? goalFromAnswers(parsed);
+  const productName = parsed.productName ?? existing?.productName ?? workspace?.project?.name ?? projectNameFromIdea(goal);
+  const brief = createBossBriefFromAnswers({
+    goal,
+    productName,
+    answers: parsed,
+    updatedAt: new Date().toISOString()
+  });
+  await writeBossBrief(targetCwd, brief);
+  return {
+    brief,
+    answers: parsed,
+    saved: true,
+    workspace,
+    usedLatest: Boolean(workspace?.usedLatest),
+    targetCwd
+  };
 }
 
 async function readBossBrief(cwd: string): Promise<BossBrief | undefined> {
@@ -2944,6 +3057,14 @@ function isReportRequest(request: string): boolean {
   );
 }
 
+function isAnswerRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:我的回答|回答是|答案是|回答追问|回答需求|整理我的回答|沉淀我的回答|使用者是|用户是|谁每天用|第一眼看|首版通过|首版能|验收标准是)/.test(normalized) ||
+    /^(?:answers|answer|intake)$/.test(normalized)
+  );
+}
+
 function isQuestionRequest(request: string): boolean {
   const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
   return (
@@ -3013,6 +3134,90 @@ function questionGoalFromNaturalRequest(request: string): string | undefined {
     return undefined;
   }
   return cleaned;
+}
+
+function answerTextFromNaturalRequest(request: string): string | undefined {
+  if (!isAnswerRequest(request)) {
+    return undefined;
+  }
+  const cleaned = request
+    .replace(/^(?:请|帮我|麻烦|给我)?/, "")
+    .replace(/^(?:把|将)?(?:我的)?(?:回答|答案|追问回答|需求回答)(?:是)?(?:整理|沉淀|保存|变成|写成)?(?:为|成)?(?:业务简报|需求简报|简报)?[：:\s]*/i, "")
+    .replace(/^(?:我的)?(?:回答|答案)(?:是)?[：:\s]*/i, "")
+    .replace(/^(?:answers|answer|intake)[：:\s]*/i, "")
+    .trim();
+  if (!cleaned || cleaned === request.trim() && /^(?:answers|answer|intake)$/i.test(cleaned)) {
+    return undefined;
+  }
+  return cleaned;
+}
+
+function parseBossAnswerText(value: string): ParsedBossAnswers {
+  const text = stripAnswerIntro(value);
+  const clauses = splitAnswerClauses(text);
+  const parsed: ParsedBossAnswers = {
+    goal: extractAnswerPart(text, /(?:目标|需求|想法|要做|产品)[是为:：\s]*([^；;。\n]+?)(?=[；;。\n]|使用者|用户|谁每天|第一眼|首屏|打开后|首版|通过|验收|$)/),
+    productName: extractAnswerPart(text, /(?:产品名|产品名称|系统名|名字|名称)[是为:：\s]*([^；;。\n]+?)(?=[；;。\n]|目标|需求|使用者|用户|谁每天|第一眼|首屏|打开后|首版|通过|验收|$)/),
+    audience: extractAnswerPart(text, /(?:谁每天会用|谁每天用|每天用|使用者|用户|给谁用|谁用)[是为:：\s]*([^；;。\n]+?)(?=[；;。\n]|第一眼|首屏|打开后|首版|通过|验收|$)/),
+    firstScreen: extractAnswerPart(text, /(?:第一眼最想看到|第一眼看到|第一眼看|第一眼|首屏看到|首屏看|打开后先看到|打开后第一眼)[是为:：\s]*([^；;。\n]+?)(?=[；;。\n]|首版|通过|验收|$)/),
+    passCondition: extractAnswerPart(text, /(?:什么情况算首版通过|首版通过条件|首版算通过|首版通过|首版能|通过标准|验收标准|怎样算通过|怎么才算通过)[是为:：\s]*([^；;。\n]+)$/)
+  };
+
+  const unlabeled = clauses
+    .filter((clause) => !/^(?:目标|需求|想法|要做|产品|产品名|产品名称|系统名|名字|名称)[是为:：\s]/.test(clause))
+    .map(stripAnswerLabel)
+    .filter((clause) => clause.length >= 2);
+  parsed.audience ??= unlabeled[0];
+  parsed.firstScreen ??= unlabeled[1];
+  parsed.passCondition ??= unlabeled[2];
+  parsed.goal = cleanAnswerPart(parsed.goal);
+  parsed.productName = cleanAnswerPart(parsed.productName);
+  parsed.audience = cleanAudienceAnswer(parsed.audience);
+  parsed.firstScreen = cleanAnswerPart(parsed.firstScreen);
+  parsed.passCondition = cleanAnswerPart(parsed.passCondition);
+  return parsed;
+}
+
+function splitAnswerClauses(value: string): string[] {
+  return value
+    .split(/[；;\n。]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function stripAnswerIntro(value: string): string {
+  return value
+    .replace(/^(?:请|帮我|麻烦|给我)?/, "")
+    .replace(/^(?:把|将)?(?:我的)?(?:回答|答案|追问回答|需求回答)(?:是)?(?:整理|沉淀|保存|变成|写成)?(?:为|成)?(?:业务简报|需求简报|简报)?[：:\s]*/i, "")
+    .replace(/^(?:我的)?(?:回答|答案)(?:是)?[：:\s]*/i, "")
+    .trim();
+}
+
+function stripAnswerLabel(value: string): string {
+  return value
+    .replace(/^(?:目标|需求|想法|要做|产品|产品名|产品名称|系统名|名字|名称|谁每天会用|谁每天用|每天用|使用者|用户|给谁用|谁用|第一眼最想看到|第一眼看到|第一眼看|第一眼|首屏看到|首屏看|打开后先看到|打开后第一眼|什么情况算首版通过|首版通过条件|首版算通过|首版通过|首版能|通过标准|验收标准|怎样算通过|怎么才算通过)[是为:：\s]*/i, "")
+    .trim();
+}
+
+function extractAnswerPart(value: string, pattern: RegExp): string | undefined {
+  const matched = value.match(pattern)?.[1]?.trim();
+  return matched || undefined;
+}
+
+function cleanAnswerPart(value?: string): string | undefined {
+  return value?.replace(/^[是为:：\s]+/, "").replace(/[。；;]+$/g, "").trim() || undefined;
+}
+
+function cleanAudienceAnswer(value?: string): string | undefined {
+  return cleanAnswerPart(value)
+    ?.replace(/(?:会|每天|经常|主要)*用$/g, "")
+    .trim() || undefined;
+}
+
+function goalFromAnswers(answers: BossClarificationAnswers): string {
+  const firstScreen = answers.firstScreen ? `，第一眼看到${answers.firstScreen}` : "";
+  const passCondition = answers.passCondition ? `，首版要做到${answers.passCondition}` : "";
+  return `做一个业务产品${firstScreen}${passCondition}`;
 }
 
 function isAcceptanceRequest(request: string): boolean {
