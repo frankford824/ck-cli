@@ -189,9 +189,14 @@ describe("harness", () => {
   it("explains harness engineering in plain Chinese", () => {
     const method = renderHarnessMethod();
     expect(method).toContain("模型 + 外部支架");
+    expect(method).toContain("规范前置");
+    expect(method).toContain("工具收敛");
     expect(method).toContain("权限档案");
+    expect(method).toContain("反馈闭环");
+    expect(method).toContain("状态落盘");
     expect(method).toContain("确定性护栏");
     expect(method).toContain("上下文瘦身");
+    expect(method).toContain("普通老板");
     expect(method).toContain("14 步路线");
     expect(method).toContain("以后不要再这样");
   });
