@@ -73,9 +73,9 @@ $env:CCLI_REF="你的分支名"; irm https://raw.githubusercontent.com/frankford
 
 前置要求：
 
-- Git
 - Node.js 20 或更高版本
 - pnpm，安装器会优先通过 corepack 自动启用，必要时回退到 npm 安装
+- Git 可选；有 Git 时安装器会用 Git 更新，没有 Git 时会自动下载源码包
 
 默认安装位置：
 

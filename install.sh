@@ -53,6 +53,7 @@ checkout_repo() {
   mkdir -p "$(dirname "$INSTALL_DIR")"
 
   if [ -d "$INSTALL_DIR/.git" ]; then
+    need_command git
     log "正在更新 ccli。"
     git -C "$INSTALL_DIR" fetch --prune origin
     git -C "$INSTALL_DIR" checkout "$REF"
@@ -65,7 +66,54 @@ checkout_repo() {
   fi
 
   log "正在下载 ccli。"
-  git clone --depth 1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
+  if command -v git >/dev/null 2>&1; then
+    git clone --depth 1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
+    return
+  fi
+
+  download_archive
+}
+
+download_archive() {
+  need_command tar
+  if command -v curl >/dev/null 2>&1; then
+    downloader="curl -fsSL"
+  elif command -v wget >/dev/null 2>&1; then
+    downloader="wget -qO-"
+  else
+    fail "当前电脑缺少下载工具。请安装 curl 或 wget 后重试。"
+  fi
+
+  archive_url="$(archive_url)"
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  $downloader "$archive_url" | tar -xz -C "$tmp_dir"
+  extracted="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  [ -n "$extracted" ] || fail "下载内容不完整，请稍后重试。"
+  mv "$extracted" "$INSTALL_DIR"
+}
+
+archive_url() {
+  if [ -n "${CCLI_ARCHIVE_URL:-}" ]; then
+    printf '%s\n' "$CCLI_ARCHIVE_URL"
+    return
+  fi
+
+  normalized="${REPO_URL%.git}"
+  case "$normalized" in
+    git@github.com:*)
+      normalized="https://github.com/${normalized#git@github.com:}"
+      ;;
+  esac
+
+  case "$normalized" in
+    https://github.com/*)
+      printf '%s/archive/refs/heads/%s.tar.gz\n' "$normalized" "$REF"
+      ;;
+    *)
+      fail "当前电脑没有 Git，自定义下载来源需要设置 CCLI_ARCHIVE_URL。"
+      ;;
+  esac
 }
 
 build_cli() {
@@ -91,7 +139,6 @@ show_success_card() {
 }
 
 main() {
-  need_command git
   check_node
   ensure_pnpm
   checkout_repo

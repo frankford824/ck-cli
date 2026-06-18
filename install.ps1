@@ -5,6 +5,7 @@ $Ref = if ($env:CCLI_REF) { $env:CCLI_REF } else { "main" }
 $InstallDir = if ($env:CCLI_HOME) { $env:CCLI_HOME } else { Join-Path $env:LOCALAPPDATA "ccli\ck-cli" }
 $BinDir = if ($env:CCLI_BIN_DIR) { $env:CCLI_BIN_DIR } else { Join-Path $env:LOCALAPPDATA "ccli\bin" }
 $PnpmVersion = if ($env:CCLI_PNPM_VERSION) { $env:CCLI_PNPM_VERSION } else { "10.27.0" }
+$ArchiveUrl = if ($env:CCLI_ARCHIVE_URL) { $env:CCLI_ARCHIVE_URL } else { "" }
 
 function Write-Step($Message) {
   Write-Host $Message
@@ -59,6 +60,7 @@ function Checkout-Repo {
   New-Item -ItemType Directory -Force -Path $Parent | Out-Null
 
   if (Test-Path (Join-Path $InstallDir ".git")) {
+    Require-Command "git"
     Write-Step "正在更新 ccli。"
     git -C $InstallDir fetch --prune origin
     git -C $InstallDir checkout $Ref
@@ -71,7 +73,47 @@ function Checkout-Repo {
   }
 
   Write-Step "正在下载 ccli。"
-  git clone --depth 1 --branch $Ref $RepoUrl $InstallDir
+  if (Get-Command "git" -ErrorAction SilentlyContinue) {
+    git clone --depth 1 --branch $Ref $RepoUrl $InstallDir
+    return
+  }
+
+  Download-Archive
+}
+
+function Download-Archive {
+  $Url = Resolve-ArchiveUrl
+  $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccli-" + [System.Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
+  try {
+    $ZipPath = Join-Path $TempRoot "ccli.zip"
+    Invoke-WebRequest -Uri $Url -OutFile $ZipPath
+    Expand-Archive -Path $ZipPath -DestinationPath $TempRoot -Force
+    $Extracted = Get-ChildItem -Path $TempRoot -Directory | Select-Object -First 1
+    if (-not $Extracted) {
+      Stop-Install "下载内容不完整，请稍后重试。"
+    }
+    Move-Item -Path $Extracted.FullName -Destination $InstallDir
+  } finally {
+    Remove-Item -Path $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Resolve-ArchiveUrl {
+  if ($ArchiveUrl) {
+    return $ArchiveUrl
+  }
+
+  $Normalized = $RepoUrl -replace "\.git$", ""
+  if ($Normalized -match "^git@github\.com:(.+)$") {
+    $Normalized = "https://github.com/$($Matches[1])"
+  }
+
+  if ($Normalized -notmatch "^https://github\.com/") {
+    Stop-Install "当前电脑没有 Git，自定义下载来源需要设置 CCLI_ARCHIVE_URL。"
+  }
+
+  return "$Normalized/archive/refs/heads/$Ref.zip"
 }
 
 function Build-Cli {
@@ -97,7 +139,6 @@ function Show-SuccessCard {
   }
 }
 
-Require-Command "git"
 Test-NodeVersion
 Ensure-Pnpm
 Checkout-Repo
