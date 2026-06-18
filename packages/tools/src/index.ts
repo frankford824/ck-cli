@@ -279,12 +279,15 @@ export class GitHubTool {
     if (ghAvailable) {
       const command = [
         "gh pr create",
+        ghRepoFlag(parsedRemote),
         "--draft",
         `--title ${quote(options.title)}`,
         `--body ${quote(options.body)}`,
         `--base ${quote(base)}`,
         `--head ${quote(branch)}`
-      ].join(" ");
+      ]
+        .filter(Boolean)
+        .join(" ");
       const result = await runShell(command, context.cwd, 120_000);
       if (result.exitCode !== 0) {
         throw new Error(result.stderr || result.stdout || "创建团队审查入口失败");
@@ -317,7 +320,11 @@ export class GitHubTool {
 
     const ghAvailable = await commandExists("gh", context.cwd);
     if (ghAvailable) {
-      const result = await runShell(`gh pr comment ${number} --body ${quote(body)}`, context.cwd, 120_000);
+      const result = await runShell(
+        ["gh pr comment", ghRepoFlag(parsedRemote), String(number), "--body", quote(body)].filter(Boolean).join(" "),
+        context.cwd,
+        120_000
+      );
       if (result.exitCode !== 0) {
         throw new Error(result.stderr || result.stdout || "发布审查摘要失败");
       }
@@ -367,7 +374,13 @@ export class GitHubTool {
     const ghAvailable = await commandExists("gh", context.cwd);
     if (ghAvailable) {
       const methodFlag = method === "merge" ? "--merge" : method === "rebase" ? "--rebase" : "--squash";
-      const result = await runShell(`gh pr merge ${options.number} ${methodFlag} --delete-branch`, context.cwd, 120_000);
+      const result = await runShell(
+        ["gh pr merge", ghRepoFlag(parsedRemote), String(options.number), methodFlag, "--delete-branch"]
+          .filter(Boolean)
+          .join(" "),
+        context.cwd,
+        120_000
+      );
       if (result.exitCode !== 0) {
         throw new Error(result.stderr || result.stdout || "合并团队审查入口失败");
       }
@@ -522,6 +535,10 @@ function parseGithubRemote(remote: string): { owner: string; repo: string } | un
     return { owner: ssh[1], repo: ssh[2] };
   }
   return undefined;
+}
+
+function ghRepoFlag(remote?: { owner: string; repo: string }): string {
+  return remote ? `-R ${quote(`${remote.owner}/${remote.repo}`)}` : "";
 }
 
 interface PullRequestApi {
