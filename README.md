@@ -45,6 +45,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli home
+ccli ready
 ccli setup
 ccli go "做一个客户管理系统，能记录跟进和提醒" --no-preview
 ccli doctor
@@ -100,6 +101,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli home
+ccli ready
 ccli setup
 ccli next
 ccli go "做一个客户管理系统"
@@ -247,10 +249,11 @@ ccli chat
 如果不确定电脑是否配置好：
 
 ```bash
+ccli ready
 ccli doctor
 ```
 
-`doctor` 只用中文说明哪些能力已经就绪、哪些需要处理。普通模式不会显示命令、路径、堆栈或底层错误。
+`ready` 会按老板能理解的顺序说明还差什么、先说哪句话；`doctor` 会检查底层准备项。普通模式不会显示命令、路径、堆栈或底层错误。
 
 ## 首次设置
 
@@ -460,6 +463,7 @@ ccli harness --expert
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
+- 开箱准备向导，可用 `ccli ready --json` 读取
 - 老板验收清单，可用 `ccli accept --json` 读取
 - 产品场景库，可用 `ccli ideas --json` 读取
 - 下一步建议，可用 `ccli next --json` 读取
@@ -474,6 +478,7 @@ ccli harness --expert
 
 ```bash
 ccli hardware "下一步怎么办" --json
+ccli hardware "开箱准备" --json
 ccli hardware "取消" --json
 ccli hardware "帮助" --json
 ccli hardware "我第一次用怎么开始" --json

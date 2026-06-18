@@ -4,6 +4,7 @@ import {
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
+  createSetupGuide,
   hardwareExamples,
   hardwareManifest,
   hardwareSchema,
@@ -11,6 +12,7 @@ import {
   renderAcceptanceGuide,
   renderBossHome,
   renderNextActions,
+  renderSetupGuide,
   renderStarterIdeas,
   renderWelcome,
   speechText,
@@ -23,6 +25,7 @@ describe("experience", () => {
 
     expect(text).toContain("中文开发管家");
     expect(text).toContain("ccli home");
+    expect(text).toContain("ccli ready");
     expect(text).toContain("ccli setup");
     expect(text).toContain("ccli next");
     expect(text).toContain("ccli go");
@@ -58,6 +61,25 @@ describe("experience", () => {
     ]);
 
     expect(report.summary).toContain("1 项");
+  });
+
+  it("renders a setup guide from health checks", () => {
+    const guide = createSetupGuide(
+      healthSummary([
+        { name: "智能开发能力", status: "action-needed", userMessage: "还没有检测到模型授权。" },
+        { name: "当前工作区", status: "optional", userMessage: "当前目录还不像一个项目。" },
+        { name: "本地构建能力", status: "ready", userMessage: "可以安装依赖并验证项目。" },
+        { name: "团队交付能力", status: "optional", userMessage: "暂时只能在本地工作。" }
+      ])
+    );
+    const text = renderSetupGuide(guide);
+
+    expect(guide.nextSay).toBe("开始首次设置");
+    expect(guide.steps[0].primary).toBe(true);
+    expect(text).toContain("开箱准备向导");
+    expect(text).toContain("先处理：接上智能开发能力");
+    expect(text).toContain("直接说：开始首次设置");
+    expect(text).not.toContain("diff");
   });
 
   it("renders next actions for guided usage", () => {
@@ -141,6 +163,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("speech");
     expect(hardwareManifest().output).toContain("action-button");
     expect(hardwareManifest().output).toContain("boss-home");
+    expect(hardwareManifest().output).toContain("setup-guide");
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
     expect(hardwareManifest().output).toContain("acceptance-guide");
@@ -157,12 +180,14 @@ describe("experience", () => {
 
     expect(schema.protocol).toBe("ccli-experience-protocol");
     expect(schema.kinds).toContain("boss-home");
+    expect(schema.kinds).toContain("setup-guide");
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
     expect(schema.kinds).toContain("revision-request");
     expect(schema.kinds).toContain("delivery-confirmation");
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);
     expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });

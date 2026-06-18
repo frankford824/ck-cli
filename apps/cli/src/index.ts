@@ -13,6 +13,7 @@ import {
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
+  createSetupGuide,
   hardwareExamples,
   hardwareManifest,
   hardwareSchema,
@@ -21,6 +22,7 @@ import {
   renderBossHome,
   renderHealthReport,
   renderNextActions,
+  renderSetupGuide,
   renderStarterIdeas,
   renderWelcome,
   speechText,
@@ -29,6 +31,7 @@ import {
   type HealthReport,
   type NextAction,
   type NextActionPlan,
+  type SetupGuide,
   type StarterIdea
 } from "@ccli/experience";
 import {
@@ -249,6 +252,22 @@ program
   });
 
 program
+  .command("ready")
+  .alias("onboard")
+  .description("查看老板开箱准备向导")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const guide = await buildSetupGuide(cwd);
+      if (options.json) {
+        print(JSON.stringify(guide, null, 2));
+        return;
+      }
+      print(renderSetupGuide(guide));
+    });
+  });
+
+program
   .command("home")
   .alias("launch")
   .description("打开老板开箱驾驶舱")
@@ -445,38 +464,7 @@ program
   .option("--project <name>", "顺手创建第一个项目")
   .action(async (options: { provider?: string; apiKey?: string; skipModel?: boolean; project?: string }) => {
     await withCli(async ({ renderer, cwd }) => {
-      print(renderer.render({ type: "info", message: "开始首次设置。只需要完成模型授权，就可以进入更完整的自动开发。" }));
-      const rl = createInterface({ input, output });
-      let healthCwd = cwd;
-      try {
-        const provider = options.skipModel ? undefined : await resolveSetupProvider(options.provider, rl);
-        const apiKey = provider ? await resolveSetupApiKey(provider, options.apiKey, rl) : undefined;
-        if (provider && apiKey) {
-          await saveModelSetup(provider, apiKey);
-          print(renderer.render({ type: "done", message: "模型授权已保存。后续项目会自动继承这次设置。", severity: "success" }));
-        } else {
-          print(renderer.render({ type: "risk", message: "已暂时跳过模型授权。现在仍可创建项目、记录需求和走本地流程。", severity: "warning" }));
-        }
-
-        const projectName = options.project ?? (input.isTTY ? (await rl.question("要不要顺手创建第一个项目？输入项目名，直接回车跳过：")).trim() : "");
-        if (projectName) {
-          const target = resolve(cwd, projectName);
-          await createBossProject({
-            name: projectName,
-            target,
-            install: false,
-            yes: true,
-            task: `首次设置创建项目 ${projectName}`
-          });
-          healthCwd = target;
-          print(renderer.render({ type: "done", message: "第一个项目已创建。进入这个项目后，直接用中文描述想要的结果。", severity: "success" }));
-        }
-
-        const report = healthSummary(await checkHealth(healthCwd));
-        print(renderHealthReport(report));
-      } finally {
-        rl.close();
-      }
+      await runSetupWizard({ cwd, renderer, ...options });
     });
   });
 
@@ -941,6 +929,30 @@ function controlHelpScreen(): string {
   ].join("\n");
 }
 
+function setupGuideActions(guide: SetupGuide): ExperienceAction[] {
+  const primary = guide.steps.find((step) => step.primary) ?? guide.steps[0];
+  const actions: ExperienceAction[] = [];
+  if (primary?.id === "model" && primary.command) {
+    actions.push(commandAction(primary.id, primary.title, primary.command, primary.reason, primary.status !== "ready"));
+  } else if (primary) {
+    actions.push(utteranceAction(primary.id, primary.title, primary.say, primary.reason));
+  }
+  actions.push(utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板"));
+  actions.push(utteranceAction("next", "下一步怎么办", "下一步怎么办"));
+  return uniqueExperienceActions(actions);
+}
+
+function uniqueExperienceActions(actions: ExperienceAction[]): ExperienceAction[] {
+  const seen = new Set<string>();
+  return actions.filter((action) => {
+    if (seen.has(action.id)) {
+      return false;
+    }
+    seen.add(action.id);
+    return true;
+  });
+}
+
 async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance: string }) {
   const utterance = inputValue.utterance.trim();
   if (!utterance) {
@@ -990,6 +1002,22 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "control-help" }
+    );
+  }
+
+  if (isSetupStartRequest(utterance) || isSetupGuideRequest(utterance)) {
+    const guide = await buildSetupGuide(inputValue.cwd);
+    const actions = setupGuideActions(guide);
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: guide.summary,
+        screen: renderSetupGuide(guide),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "setup-guide", guide }
     );
   }
 
@@ -1279,6 +1307,16 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isSetupStartRequest(request)) {
+    await runSetupWizard({ cwd: inputValue.cwd, renderer: inputValue.renderer });
+    return true;
+  }
+
+  if (isSetupGuideRequest(request)) {
+    print(renderSetupGuide(await buildSetupGuide(inputValue.cwd)));
+    return true;
+  }
+
   if (isProjectListRequest(request)) {
     await renderKnownProjects({ renderer: inputValue.renderer, expert: inputValue.expert, json: false });
     return true;
@@ -1434,6 +1472,51 @@ async function buildBossHome(cwd: string) {
     nextPlan,
     ideas: starterIdeas()
   });
+}
+
+async function buildSetupGuide(cwd: string) {
+  return createSetupGuide(healthSummary(await checkHealth(cwd)));
+}
+
+async function runSetupWizard(inputValue: {
+  cwd: string;
+  renderer: ProductRenderer;
+  provider?: string;
+  apiKey?: string;
+  skipModel?: boolean;
+  project?: string;
+}): Promise<void> {
+  print(inputValue.renderer.render({ type: "info", message: "开始首次设置。只需要完成模型授权，就可以进入更完整的自动开发。" }));
+  const rl = createInterface({ input, output });
+  let healthCwd = inputValue.cwd;
+  try {
+    const provider = inputValue.skipModel ? undefined : await resolveSetupProvider(inputValue.provider, rl);
+    const apiKey = provider ? await resolveSetupApiKey(provider, inputValue.apiKey, rl) : undefined;
+    if (provider && apiKey) {
+      await saveModelSetup(provider, apiKey);
+      print(inputValue.renderer.render({ type: "done", message: "模型授权已保存。后续项目会自动继承这次设置。", severity: "success" }));
+    } else {
+      print(inputValue.renderer.render({ type: "risk", message: "已暂时跳过模型授权。现在仍可创建项目、记录需求和走本地流程。", severity: "warning" }));
+    }
+
+    const projectName = inputValue.project ?? (input.isTTY ? (await rl.question("要不要顺手创建第一个项目？输入项目名，直接回车跳过：")).trim() : "");
+    if (projectName) {
+      const target = resolve(inputValue.cwd, projectName);
+      await createBossProject({
+        name: projectName,
+        target,
+        install: false,
+        yes: true,
+        task: `首次设置创建项目 ${projectName}`
+      });
+      healthCwd = target;
+      print(inputValue.renderer.render({ type: "done", message: "第一个项目已创建。进入这个项目后，直接用中文描述想要的结果。", severity: "success" }));
+    }
+
+    print(renderHealthReport(healthSummary(await checkHealth(healthCwd))));
+  } finally {
+    rl.close();
+  }
 }
 
 async function buildAcceptanceGuide(cwd: string) {
@@ -1972,6 +2055,19 @@ function isCancelRequest(request: string): boolean {
 function isHelpRequest(request: string): boolean {
   const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
   return /^(?:帮助|help|使用说明|新手帮助|我不会用|教我用|怎么操作|能做什么|可以做什么)$/.test(normalized);
+}
+
+function isSetupStartRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return /^(?:开始首次设置|进入首次设置|运行首次设置|启动首次设置|开始设置|开始setup|setup)$/.test(normalized);
+}
+
+function isSetupGuideRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:开箱准备|准备向导|设置向导|准备好了吗|能开始了吗|还差什么|怎么设置|怎么配置|配置模型|模型授权|接入模型|接上模型)/.test(normalized) ||
+    /^(?:ready|onboard)$/.test(normalized)
+  );
 }
 
 function isAcceptanceRequest(request: string): boolean {

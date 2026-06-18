@@ -111,12 +111,31 @@ export interface HealthReport {
   items: HealthCheckItem[];
 }
 
+export interface SetupGuideStep {
+  id: string;
+  title: string;
+  status: "ready" | "need-action" | "optional";
+  reason: string;
+  say: string;
+  command?: string;
+  primary?: boolean;
+}
+
+export interface SetupGuide {
+  title: string;
+  summary: string;
+  steps: SetupGuideStep[];
+  nextSay: string;
+  ask: string;
+}
+
 export function welcomeCard(): WelcomeCard {
   return {
     title: "ccli 中文开发管家",
     summary: "你只需要说清楚想要的结果，ccli 负责规划、开发、验证、审查和交付。",
     nextActions: [
       "开箱首页：ccli home",
+      "开箱准备：ccli ready",
       "首次设置：ccli setup",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
@@ -417,6 +436,85 @@ export function renderHealthReport(report: HealthReport, expert = false): string
   return lines.join("\n");
 }
 
+export function createSetupGuide(report: HealthReport): SetupGuide {
+  const model = healthItem(report, "智能开发能力");
+  const workspace = healthItem(report, "当前工作区");
+  const localBuild = healthItem(report, "本地构建能力");
+  const delivery = healthItem(report, "团队交付能力");
+  const modelReady = model?.status === "ready";
+  const workspaceReady = workspace?.status === "ready";
+  const localReady = localBuild?.status === "ready";
+  const deliveryReady = delivery?.status === "ready";
+  const firstAction = !modelReady
+    ? "开始首次设置"
+    : !workspaceReady
+      ? "给我几个产品模板"
+      : !localReady
+        ? "打开当前产品页面"
+        : "下一步怎么办";
+  const summary = modelReady
+    ? workspaceReady
+      ? "智能开发准备已基本完成，可以直接继续做产品。"
+      : "智能开发已经接好，下一步先创建或打开一个产品。"
+    : "还差模型授权；现在也可以先从模板创建产品，后续再补授权。";
+
+  return {
+    title: "开箱准备向导",
+    summary,
+    steps: [
+      {
+        id: "model",
+        title: "接上智能开发能力",
+        status: modelReady ? "ready" : "need-action",
+        reason: model?.userMessage ?? "模型授权决定 ccli 能不能真正替你规划、开发和审查。",
+        say: "开始首次设置",
+        command: "ccli setup",
+        primary: !modelReady
+      },
+      {
+        id: "workspace",
+        title: "准备第一个产品",
+        status: workspaceReady ? "ready" : "need-action",
+        reason: workspace?.userMessage ?? "先有一个产品，老板才能看到页面、验收和继续修改。",
+        say: workspaceReady ? "打开当前产品页面" : "给我几个产品模板",
+        command: workspaceReady ? "ccli preview --install" : "ccli ideas",
+        primary: modelReady && !workspaceReady
+      },
+      {
+        id: "local-preview",
+        title: "确认本地能打开页面",
+        status: localReady ? "ready" : "need-action",
+        reason: localBuild?.userMessage ?? "本地预览能让老板直接看效果，不需要理解开发过程。",
+        say: "打开当前产品页面",
+        command: "ccli preview --install",
+        primary: modelReady && workspaceReady && !localReady
+      },
+      {
+        id: "delivery",
+        title: "准备团队交付",
+        status: deliveryReady ? "ready" : "optional",
+        reason: delivery?.userMessage ?? "配置后可以自动创建审查入口并合并成果。",
+        say: "检查当前电脑是否准备好",
+        command: "ccli doctor"
+      }
+    ],
+    nextSay: firstAction,
+    ask: "不确定就直接说：下一步怎么办。"
+  };
+}
+
+export function renderSetupGuide(guide: SetupGuide): string {
+  const lines = [guide.title, "", guide.summary, "", `现在先说：${guide.nextSay}`, "", "准备项："];
+  for (const [index, step] of guide.steps.entries()) {
+    const prefix = step.status === "ready" ? "已就绪" : step.status === "optional" ? "可稍后" : "先处理";
+    lines.push(`${index + 1}. ${prefix}：${step.title}`);
+    lines.push(`原因：${step.reason}`);
+    lines.push(`直接说：${step.say}`);
+  }
+  lines.push("", guide.ask);
+  return lines.join("\n");
+}
+
 export function createExperienceEvent(input: Omit<ExperienceEvent, "surface"> & { surface?: InteractionSurface }): ExperienceEvent {
   return {
     surface: input.surface ?? "terminal",
@@ -453,6 +551,7 @@ export function hardwareManifest() {
       "choice",
       "action-button",
       "boss-home",
+      "setup-guide",
       "control-help",
       "control-cancelled",
       "acceptance-guide",
@@ -462,7 +561,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -497,6 +596,7 @@ export function hardwareSchema() {
     kinds: [
       "welcome",
       "boss-home",
+      "setup-guide",
       "control-help",
       "control-cancelled",
       "next-action",
@@ -550,6 +650,33 @@ export function hardwareExamples() {
         actions: nextActions
       }),
       { kind: "boss-home" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "还差模型授权；现在也可以先从模板创建产品，后续再补授权。",
+        screen: "开箱准备向导\n\n现在先说：开始首次设置\n\n准备项：\n1. 先处理：接上智能开发能力\n直接说：开始首次设置\n2. 先处理：准备第一个产品\n直接说：给我几个产品模板",
+        choices: ["开始首次设置", "给我几个产品模板", "下一步怎么办"],
+        actions: [
+          {
+            id: "setup",
+            label: "开始首次设置",
+            kind: "command",
+            command: "ccli setup",
+            description: "保存模型授权，让 ccli 可以自动规划、开发和审查。",
+            requiresConfirmation: true
+          },
+          {
+            id: "ideas",
+            label: "给我几个产品模板",
+            kind: "utterance",
+            say: "给我几个产品模板",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "setup-guide" }
     ),
     createHardwareResponse(
       createExperienceEvent({
@@ -620,6 +747,10 @@ function keywordMatch(goal: string, idea: StarterIdea): boolean {
     .split(/[，。,\s]+/)
     .filter((part) => part.length >= 2)
     .some((part) => text.includes(part));
+}
+
+function healthItem(report: HealthReport, name: string): HealthCheckItem | undefined {
+  return report.items.find((item) => item.name === name);
 }
 
 function cleanText(value?: string): string | undefined {
