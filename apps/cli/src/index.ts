@@ -24,7 +24,15 @@ import {
   type NextActionPlan,
   type StarterIdea
 } from "@ccli/experience";
-import { analyzeHarnessReadiness, loadHarnessContext, readHarnessProgress, renderHarnessReadiness, renderHarnessSummary } from "@ccli/harness";
+import {
+  analyzeHarnessReadiness,
+  loadHarnessContext,
+  readHarnessProgress,
+  recordHarnessLesson,
+  renderHarnessMethod,
+  renderHarnessReadiness,
+  renderHarnessSummary
+} from "@ccli/harness";
 import { LocalMemoryStore } from "@ccli/memory";
 import { SPECIALISTS, SPRINT_STEPS } from "@ccli/methodology";
 import { ProductRenderer } from "@ccli/product-ui";
@@ -462,8 +470,13 @@ program
 program
   .command("harness")
   .description("查看当前项目的智能体驾驭系统")
-  .action(async () => {
+  .option("--method", "查看驾驭方法怎么用")
+  .action(async (options: { method?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
+      if (options.method) {
+        print(renderHarnessMethod());
+        return;
+      }
       const context = await loadHarnessContext(cwd);
       const progress = await readHarnessProgress(cwd);
       const readiness = analyzeHarnessReadiness(context, progress);
@@ -485,6 +498,25 @@ program
           print(`  禁止：${budget.deniedActions.join("、")}`);
         }
       }
+    });
+  });
+
+program
+  .command("learn")
+  .argument("<lesson...>", "希望以后记住或避免的经验")
+  .description("把一次踩坑或偏好沉淀为项目经验")
+  .option("--impact <impact>", "这件事会造成什么影响")
+  .option("--prevention <prevention>", "以后应该怎么避免")
+  .action(async (lessonParts: string[], options: { impact?: string; prevention?: string }) => {
+    await withCli(async ({ renderer, cwd, expert }) => {
+      await rememberUserLesson({
+        cwd,
+        renderer,
+        expert,
+        lesson: lessonParts.join(" "),
+        impact: options.impact,
+        prevention: options.prevention
+      });
     });
   });
 
@@ -1095,6 +1127,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isLessonMemoryRequest(request)) {
+    await rememberUserLesson({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, lesson: lessonFromNaturalRequest(request) });
+    return true;
+  }
+
   if (isProductCreationRequest(request)) {
     print(inputValue.renderer.render({ type: "info", message: "已识别为新产品目标，开始一键生成并打开预览。" }));
     await createProductFromIdea({
@@ -1309,6 +1346,32 @@ async function installSkillsForProject(inputValue: { cwd: string; renderer: Prod
   }
 }
 
+async function rememberUserLesson(inputValue: {
+  cwd: string;
+  renderer: ProductRenderer;
+  expert: boolean;
+  lesson: string;
+  impact?: string;
+  prevention?: string;
+}): Promise<void> {
+  const lesson = inputValue.lesson.trim();
+  if (!lesson) {
+    print(inputValue.renderer.render({ type: "risk", message: "请直接说希望以后记住或避免什么。", severity: "warning" }));
+    return;
+  }
+
+  const result = await recordHarnessLesson(inputValue.cwd, {
+    symptom: lesson,
+    impact: inputValue.impact ?? "这会影响用户对结果的判断。",
+    prevention: inputValue.prevention ?? `以后遇到类似情况，先按这条经验检查：${lesson}`,
+    source: "用户明确沉淀的经验"
+  });
+  print(inputValue.renderer.render({ type: result.written ? "done" : "info", message: result.message, severity: result.written ? "success" : "info" }));
+  if (inputValue.expert) {
+    print(`经验库：${result.path}`);
+  }
+}
+
 async function renderKnownProjects(inputValue: { renderer: ProductRenderer; expert: boolean; json: boolean }): Promise<void> {
   const projects = await readProjectRegistry();
   if (inputValue.json) {
@@ -1432,6 +1495,22 @@ function ideaKeyFromNaturalRequest(request: string): string | undefined {
 
 function isSkillInstallRequest(request: string): boolean {
   return /(?:补齐|安装|初始化|修复|创建).*(?:开发)?(?:技能|skill|skills)/i.test(request) || /(?:技能|skill|skills).*(?:补齐|安装|初始化|修复|创建)/i.test(request);
+}
+
+function isLessonMemoryRequest(request: string): boolean {
+  return /^(?:请|帮我|麻烦)?(?:记住|记一下|记下来|保存|沉淀).+/.test(request) ||
+    /(?:记住|记一下|以后|下次|别再|不要再|避免).*(?:不要|别|避免|记住|这样|同样|再犯|踩坑|问题|错误|偏好)/.test(request) ||
+    /(?:把|将).*(?:经验|教训|规则|偏好).*(?:记住|保存|沉淀|写入)/.test(request);
+}
+
+function lessonFromNaturalRequest(request: string): string {
+  return request
+    .replace(/^(?:请|帮我|麻烦)?(?:把|将)?/, "")
+    .replace(/^[：:\s]+/, "")
+    .replace(/(?:记住|记一下|保存|沉淀|写入)(?:这个|这条)?(?:经验|教训|规则|偏好)?/g, "")
+    .replace(/^[：:\s]+/, "")
+    .replace(/(?:以后|下次)(?:请|要)?/g, "以后")
+    .trim() || request.trim();
 }
 
 function isProductCreationRequest(request: string): boolean {

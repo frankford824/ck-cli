@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
-import { harnessPrompt, loadHarnessContext, progressSnapshot, writeHarnessProgress, type HarnessContext } from "@ccli/harness";
+import { harnessPrompt, loadHarnessContext, progressSnapshot, recordHarnessLesson, writeHarnessProgress, type HarnessContext } from "@ccli/harness";
 import { LocalMemoryStore, memoryContextForPrompt } from "@ccli/memory";
 import { forcingQuestions, specialistPrompt, sprintPlanLabels } from "@ccli/methodology";
 import { ProductRenderer, type ProductEvent } from "@ccli/product-ui";
@@ -359,6 +359,14 @@ export class TaskOrchestrator {
       });
 
       if (validationOutcome.validation === "failed" && builderSelection && build.usedModel) {
+        await rememberHarnessLesson(options.cwd, audit, {
+          task: options.requirement,
+          stage: "validate",
+          symptom: "自动验证没有通过",
+          impact: validationOutcome.facts.join(" ") || "本次任务需要先修复再继续交付。",
+          prevention: "完成同类改动后必须先运行自动验证；如果失败，只做最小必要修复，并再次验证后再保存成果。",
+          source: "自动验证反馈闭环"
+        });
         await emit({ type: "edit", message: "自动验证发现问题，正在修正。" });
         await audit.record("harness.backpressure.start", "验证失败反馈已交给开发代理", {
           feedback: validationOutcome.feedback
@@ -496,6 +504,14 @@ export class TaskOrchestrator {
       return { branch, summary, build, review, prUrl };
     } catch (error) {
       await audit.record("workflow.error", "任务流程失败", serializeError(error));
+      await rememberHarnessLesson(options.cwd, audit, {
+        task: options.requirement,
+        stage: "review",
+        symptom: "任务流程中断",
+        impact: "本次任务没有顺利完成，需要查看审计摘要或修复环境后重试。",
+        prevention: "遇到同类流程问题时，先读取最近进度和审计摘要，再继续处理，不从头猜测项目状态。",
+        source: "工作流错误处理"
+      });
       await saveProgress(options.cwd, audit, {
         task: options.requirement,
         currentStage: "review",
@@ -1128,6 +1144,23 @@ async function saveProgress(
   await writeHarnessProgress(cwd, progress).catch(async (error: unknown) => {
     await audit.record("harness.progress.error", "Harness 进度写入失败", serializeError(error));
   });
+}
+
+async function rememberHarnessLesson(
+  cwd: string,
+  audit: AuditSession,
+  input: Parameters<typeof recordHarnessLesson>[1]
+): Promise<void> {
+  await recordHarnessLesson(cwd, input)
+    .then(async (result) => {
+      await audit.record(result.written ? "harness.lesson.recorded" : "harness.lesson.duplicate", result.message, {
+        path: result.path,
+        written: result.written
+      });
+    })
+    .catch(async (error: unknown) => {
+      await audit.record("harness.lesson.error", "Harness 经验写入失败", serializeError(error));
+    });
 }
 
 function tailForModel(text: string): string {

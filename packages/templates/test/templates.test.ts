@@ -16,6 +16,7 @@ describe("webTemplateFiles", () => {
     expect(files["AGENTS.md"]).toContain("项目指南");
     expect(files[".ccli/harness/rules/safety.md"]).toContain("安全规则");
     expect(files[".ccli/harness/rules/product.md"]).toContain("产品规则");
+    expect(files[".ccli/harness/agent-memory/LESSONS.md"]).toContain("失败经验库");
     expect(files[".ccli/skills/office-hours.md"]).toContain("固定追问");
     expect(files[".ccli/skills/frontend-design.md"]).toContain("前端设计技能");
     expect(files[".gitignore"]).toContain(".ccli/progress.json");

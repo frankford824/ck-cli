@@ -15,7 +15,7 @@
 - 借鉴 open-design：新项目默认生成 `DESIGN.md`、`.ccli/skills/` 和 `.ccli/design-systems/`。
 - 借鉴 Anthropic frontend-design skill：新项目默认带中文前端设计技能，开发代理会读取设计契约和技能约束。
 - 已有项目可用 `ccli skills` 一键补齐中文产品追问、质量审查和前端设计技能。
-- 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环和 `.ccli/progress.json` 进度落盘。
+- 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环、`.ccli/progress.json` 进度落盘和失败经验库。
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
@@ -124,6 +124,8 @@ ccli roles --expert
 ccli design --expert
 ccli skills
 ccli harness
+ccli harness --method
+ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
 ccli memory search "登录页面" --expert
 ccli hardware --expert
@@ -352,9 +354,11 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - 每个阶段只暴露少量工具语义，减少模型选择噪音。
 - 自动验证失败时，把失败摘要交回开发代理，最多先自动修复一次。
 - 每个阶段写入 `.ccli/progress.json`，长任务或上下文丢失后可以接管。
+- 每次踩坑都可以写入 `.ccli/harness/agent-memory/LESSONS.md`，后续任务开始前会自动读取。
 - 本地预览作为用户可理解的反馈闭环，让“看见页面”成为验证的一部分。
 - `ccli skills` 会给已有项目补齐可复用中文开发技能；直接说“补齐开发技能”也可以触发。
 - `ccli harness` 会给出中文健康度、已具备能力、缺口和下一步建议。
+- `ccli learn` 会把一句“以后不要再这样”沉淀成项目经验。
 - 所有原始工具结果和模型细节仍进入 `.ccli/audit/*.jsonl`。
 
 补齐当前项目的中文开发技能：
@@ -370,6 +374,24 @@ ccli harness
 ```
 
 普通用户会看到当前项目是否已经具备稳定规则、护栏、验证反馈、独立审查和进度记忆；缺什么就按中文建议补什么。
+
+查看这套方法怎么用：
+
+```bash
+ccli harness --method
+```
+
+沉淀一条经验：
+
+```bash
+ccli learn "以后新增按钮时，手机上也必须清楚、好点击"
+```
+
+也可以直接自然语言输入：
+
+```bash
+ccli "记住：以后不要再把技术错误直接展示给普通用户"
+```
 
 查看专家细节：
 
