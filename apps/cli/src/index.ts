@@ -875,11 +875,12 @@ program
       }
 
       const audit = await AuditSession.create({ cwd, task: "创建团队审查入口" });
+      const harness = await loadHarnessContext(cwd);
       const git = new GitTool();
       print(renderer.progress("save", "正在发送当前成果。"));
-      await git.pushCurrent({ cwd, audit, confirmed: true });
+      await git.pushCurrent({ cwd, audit, confirmed: true, harness });
       const result = await new GitHubTool().createOrFindDraftPr(
-        { cwd, audit, confirmed: true },
+        { cwd, audit, confirmed: true, harness },
         {
           title: options.title ?? "ccli 自动交付",
           body: options.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。",
@@ -2912,11 +2913,12 @@ async function runDeliveryFlow(inputValue: {
   const config = await loadCcliConfig(cwd);
   const registry = createDefaultProviderRegistry(config);
   const audit = await AuditSession.create({ cwd, task: "自动交付" });
+  const harness = await loadHarnessContext(cwd);
   const git = new GitTool();
   const github = new GitHubTool();
 
   print(inputValue.renderer.progress("save", "正在发送当前成果。"));
-  await git.pushCurrent({ cwd, audit, confirmed: true });
+  await git.pushCurrent({ cwd, audit, confirmed: true, harness });
 
   print(inputValue.renderer.progress("review", "正在进行独立审查。"));
   const review = await new ReviewerAgent().review({
@@ -2928,7 +2930,7 @@ async function runDeliveryFlow(inputValue: {
   const title = inputValue.title ?? "ccli 自动交付";
   const body = appendApprovalToPrBody(inputValue.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。", approval);
   const pr = await github.createOrFindDraftPr(
-    { cwd, audit, confirmed: true },
+    { cwd, audit, confirmed: true, harness },
     {
       title,
       body,
@@ -2942,7 +2944,7 @@ async function runDeliveryFlow(inputValue: {
   }
 
   if (pr.number) {
-    const comment = await github.postReviewSummary({ cwd, audit, confirmed: true }, pr.number, reviewComment(title, review));
+    const comment = await github.postReviewSummary({ cwd, audit, confirmed: true, harness }, pr.number, reviewComment(title, review));
     print(inputValue.renderer.render({ type: comment.posted ? "done" : "risk", message: comment.message, severity: comment.posted ? "success" : "warning" }));
   }
 
@@ -2962,7 +2964,7 @@ async function runDeliveryFlow(inputValue: {
   }
 
   if (pr.draft) {
-    const ready = await github.markReadyForReview({ cwd, audit, confirmed: true }, pr.number);
+    const ready = await github.markReadyForReview({ cwd, audit, confirmed: true, harness }, pr.number);
     print(inputValue.renderer.render({ type: ready.posted ? "done" : "risk", message: ready.message, severity: ready.posted ? "success" : "warning" }));
     if (!ready.posted) {
       return;
@@ -2976,7 +2978,7 @@ async function runDeliveryFlow(inputValue: {
   }
 
   const merge = await github.mergePr(
-    { cwd, audit, confirmed: true },
+    { cwd, audit, confirmed: true, harness },
     {
       number: pr.number,
       method: parseMergeMethod(inputValue.method),
@@ -4053,7 +4055,8 @@ async function createBossProject(inputValue: {
   await mkdir(inputValue.target, { recursive: true });
   const audit = await AuditSession.create({ cwd: inputValue.target, task: inputValue.task });
   await createTemplateProject(inputValue.target, inputValue.name, audit);
-  await new GitTool().initStandalone({ cwd: inputValue.target, audit, confirmed: true });
+  const harness = await loadHarnessContext(inputValue.target);
+  await new GitTool().initStandalone({ cwd: inputValue.target, audit, confirmed: true, harness });
 
   if (inputValue.install) {
     const confirmed = inputValue.yes || (await confirmChinese("创建后需要安装依赖，会访问网络。是否继续？"));
@@ -4063,7 +4066,8 @@ async function createBossProject(inputValue: {
         cwd: inputValue.target,
         audit,
         kind: "install",
-        confirmed: true
+        confirmed: true,
+        harness
       });
     }
   }

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeHarnessReadiness,
   defaultToolBudget,
+  evaluateHarnessHooks,
   harnessPrompt,
   loadHarnessContext,
   progressSnapshot,
@@ -179,5 +180,53 @@ describe("harness", () => {
     expect(method).toContain("权限档案");
     expect(method).toContain("14 步路线");
     expect(method).toContain("以后不要再这样");
+  });
+
+  it("turns deterministic hooks into a blocking runtime decision", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-hook-"));
+    try {
+      await mkdir(join(root, ".ccli", "harness"), { recursive: true });
+      await writeFile(
+        join(root, ".ccli", "harness", "hooks.json"),
+        JSON.stringify({
+          hooks: [
+            {
+              id: "dangerous-action-gate",
+              when: "before-tool",
+              description: "执行前拦截危险动作",
+              blocks: true
+            }
+          ]
+        }),
+        "utf8"
+      );
+
+      const context = await loadHarnessContext(root);
+      const evaluation = evaluateHarnessHooks(context, {
+        when: "before-tool",
+        action: "shell",
+        command: "rm -rf ."
+      });
+
+      expect(evaluation.blocked).toBe(true);
+      expect(evaluation.userMessage).toContain("驾驭系统阻止");
+      expect(evaluation.findings[0]?.reason).toContain("破坏性");
+
+      const branchPush = evaluateHarnessHooks(context, {
+        when: "before-tool",
+        action: "git-push",
+        command: "git push -u origin 'main-fix'"
+      });
+      const mainPush = evaluateHarnessHooks(context, {
+        when: "before-tool",
+        action: "git-push",
+        command: "git push -u origin 'main'"
+      });
+
+      expect(branchPush.blocked).toBe(false);
+      expect(mainPush.blocked).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
