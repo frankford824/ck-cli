@@ -91,6 +91,38 @@ describe("cli boss experience", () => {
     }
   });
 
+  it("keeps first-run readiness focused on seeing a product before setup", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-empty-ready-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "ready"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("开箱准备向导");
+      expect(stdout).toContain("现在先说：做一个客户跟进系统，能记录客户、跟进和提醒");
+      expect(stdout).toContain("可以先生成第一个产品看到效果");
+      expect(stdout).toContain("先处理：先看到第一个产品");
+      expect(stdout).toContain("直接说：做一个客户跟进系统，能记录客户、跟进和提醒");
+      expect(stdout.indexOf("先看到第一个产品")).toBeLessThan(stdout.indexOf("接上智能开发能力"));
+      expect(stdout).not.toContain("现在先说：开始首次设置");
+      expect(stdout).not.toContain("ccli go");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("shows a boss report card after one-sentence product creation", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "ccli-one-shot-"));

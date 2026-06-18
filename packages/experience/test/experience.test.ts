@@ -132,11 +132,14 @@ describe("experience", () => {
     );
     const text = renderSetupGuide(guide);
 
-    expect(guide.nextSay).toBe("开始首次设置");
+    expect(guide.nextSay).toBe("做一个客户跟进系统，能记录客户、跟进和提醒");
     expect(guide.steps[0].primary).toBe(true);
+    expect(guide.steps[0]?.id).toBe("workspace");
     expect(text).toContain("开箱准备向导");
+    expect(text).toContain("可以先生成第一个产品看到效果");
+    expect(text).toContain("先处理：先看到第一个产品");
+    expect(text).toContain("直接说：做一个客户跟进系统，能记录客户、跟进和提醒");
     expect(text).toContain("先处理：接上智能开发能力");
-    expect(text).toContain("直接说：开始首次设置");
     expect(text).not.toContain("diff");
   });
 
@@ -559,6 +562,12 @@ describe("experience", () => {
     expect(bootHome?.event.actions?.some((action) => action.say === "补齐驾驭系统")).toBe(false);
     expect(bootHome?.event.actions?.some((action) => action.kind === "command")).toBe(false);
     expect(examples.some((example) => exampleKind(example.data) === "setup-guide")).toBe(true);
+    const setupGuide = examples.find((example) => exampleKind(example.data) === "setup-guide");
+    expect(setupGuide?.event.say).toContain("先生成第一个产品");
+    expect(setupGuide?.event.screen).toContain("现在先说：做一个客户跟进系统");
+    expect(setupGuide?.event.actions?.[0]?.label).toBe("直接一句话开工");
+    expect(setupGuide?.event.actions?.[0]?.say).toBe("做一个客户跟进系统，能记录客户、跟进和提醒");
+    expect(setupGuide?.event.actions?.some((action) => action.kind === "command")).toBe(false);
     expect(examples.some((example) => exampleKind(example.data) === "resume-guide")).toBe(true);
     expect(examples.some((example) => exampleKind(example.data) === "question-card")).toBe(true);
     expect(examples.some((example) => exampleKind(example.data) === "brief-card")).toBe(true);

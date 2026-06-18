@@ -978,10 +978,11 @@ export function createSetupGuide(report: HealthReport): SetupGuide {
   const workspaceReady = workspace?.status === "ready";
   const localReady = localBuild?.status === "ready";
   const deliveryReady = delivery?.status === "ready";
-  const firstAction = !modelReady
-    ? "开始首次设置"
-    : !workspaceReady
-      ? "给我几个产品模板"
+  const firstProductSay = "做一个客户跟进系统，能记录客户、跟进和提醒";
+  const firstAction = !workspaceReady
+    ? firstProductSay
+    : !modelReady
+      ? "打开当前产品页面"
       : !localReady
         ? "打开当前产品页面"
         : "下一步怎么办";
@@ -989,29 +990,31 @@ export function createSetupGuide(report: HealthReport): SetupGuide {
     ? workspaceReady
       ? "智能开发准备已基本完成，可以直接继续做产品。"
       : "智能开发已经接好，下一步先创建或打开一个产品。"
-    : "还差模型授权；现在也可以先从模板创建产品，后续再补授权。";
+    : workspaceReady
+      ? "还差模型授权；现在可以先打开产品或安全试用，后续再补授权。"
+      : "可以先生成第一个产品看到效果；模型授权后，自动规划、开发和审查会更完整。";
 
   return {
     title: "开箱准备向导",
     summary,
     steps: [
       {
+        id: "workspace",
+        title: "先看到第一个产品",
+        status: workspaceReady ? "ready" : "need-action",
+        reason: workspace?.userMessage ?? "先有一个产品，老板才能看到页面、验收和继续修改。",
+        say: workspaceReady ? "打开当前产品页面" : firstProductSay,
+        command: workspaceReady ? "ccli preview --install" : `ccli go "${firstProductSay}"`,
+        primary: !workspaceReady || (workspaceReady && !modelReady)
+      },
+      {
         id: "model",
         title: "接上智能开发能力",
         status: modelReady ? "ready" : "need-action",
-        reason: model?.userMessage ?? "模型授权决定 ccli 能不能真正替你规划、开发和审查。",
+        reason: model?.userMessage ?? "模型授权会让 ccli 的自动规划、开发和审查更完整，但不影响先体验开箱流程。",
         say: "开始首次设置",
         command: "ccli setup",
-        primary: !modelReady
-      },
-      {
-        id: "workspace",
-        title: "准备第一个产品",
-        status: workspaceReady ? "ready" : "need-action",
-        reason: workspace?.userMessage ?? "先有一个产品，老板才能看到页面、验收和继续修改。",
-        say: workspaceReady ? "打开当前产品页面" : "给我几个产品模板",
-        command: workspaceReady ? "ccli preview --install" : "ccli ideas",
-        primary: modelReady && !workspaceReady
+        primary: false
       },
       {
         id: "local-preview",
@@ -1425,10 +1428,18 @@ export function hardwareExamples() {
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
-        say: "还差模型授权；现在也可以先从模板创建产品，后续再补授权。",
-        screen: "开箱准备向导\n\n现在先说：开始首次设置\n\n准备项：\n1. 先处理：接上智能开发能力\n直接说：开始首次设置\n2. 先处理：准备第一个产品\n直接说：给我几个产品模板",
-        choices: ["开始首次设置", "给我几个产品模板", "下一步怎么办"],
+        say: "可以先生成第一个产品看到效果；模型授权后，自动规划、开发和审查会更完整。",
+        screen: "开箱准备向导\n\n现在先说：做一个客户跟进系统，能记录客户、跟进和提醒\n\n准备项：\n1. 先处理：先看到第一个产品\n直接说：做一个客户跟进系统，能记录客户、跟进和提醒\n2. 先处理：接上智能开发能力\n直接说：开始首次设置",
+        choices: ["直接一句话开工", "开始首次设置", "下一步怎么办"],
         actions: [
+          {
+            id: "one-shot-product",
+            label: "直接一句话开工",
+            kind: "utterance",
+            say: "做一个客户跟进系统，能记录客户、跟进和提醒",
+            description: "先看到一个能打开、能验收、能继续修改的首版产品。",
+            requiresConfirmation: false
+          },
           {
             id: "setup",
             label: "开始首次设置",
