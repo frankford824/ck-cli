@@ -47,25 +47,16 @@ Windows PowerShell：
 irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```
 
-安装完成后验证：
+安装完成后，安装器会直接显示中文开箱卡。普通用户只需要重新打开终端，输入 `ccli`，或者直接说“打开开箱首页”“一步步问我，然后开工”“试用一下”。
+
+如果要做完整验收，可以再运行：
 
 ```bash
+ccli installed
 ccli
-ccli home
-ccli wizard "做一个客户管理系统，能记录跟进和提醒" --no-launch
-ccli questions "做一个客户管理系统，能记录跟进和提醒"
-ccli answers "销售每天用；第一眼看待跟进客户；首版能新增客户并提醒"
-ccli launch --no-preview
-ccli brief "做一个客户管理系统，能记录跟进和提醒"
-ccli report
-ccli approve "首屏和提醒逻辑可以"
-ccli try --no-preview
-ccli ready
-ccli resume
-ccli setup
-ccli go "做一个客户管理系统，能记录跟进和提醒" --no-preview
-ccli doctor
-ccli preview --install --check
+ccli "一步步问我，然后开工"
+ccli "试用一下"
+ccli "下一步怎么办"
 ```
 
 如果要在 PR 分支上提前试用：
@@ -117,6 +108,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli home
+ccli installed
 ccli questions "做一个客户管理系统"
 ccli answers "销售每天用；第一眼看待跟进客户；首版能新增客户并提醒"
 ccli launch

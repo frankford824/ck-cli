@@ -84,6 +84,12 @@ EOF
   chmod +x "$BIN_DIR/ccli"
 }
 
+show_success_card() {
+  node "$INSTALL_DIR/apps/cli/dist/index.js" installed || {
+    log "安装完成。现在可以直接输入 ccli 打开开箱首页。"
+  }
+}
+
 main() {
   need_command git
   check_node
@@ -92,13 +98,14 @@ main() {
   build_cli
   write_shim
 
-  log "ccli 已安装到 $INSTALL_DIR"
-  log "启动器已写入 $BIN_DIR/ccli"
+  log ""
+  show_success_card
   if ! printf '%s' ":$PATH:" | grep -Fq ":$BIN_DIR:"; then
-    log "提示：$BIN_DIR 当前不在 PATH 中。可以执行："
+    log ""
+    log "还差一步：当前终端还找不到 ccli。可以执行："
     log "  export PATH=\"$BIN_DIR:\$PATH\""
+    log "然后输入：ccli"
   fi
-  log "验证命令：ccli --help"
 }
 
 main "$@"
