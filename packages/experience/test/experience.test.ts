@@ -3,6 +3,7 @@ import {
   createAcceptanceGuide,
   createBossApprovalReceipt,
   createBossBrief,
+  createBossBriefFromAnswers,
   createBossHome,
   createBossQuestionCard,
   createBossReportCard,
@@ -39,6 +40,7 @@ describe("experience", () => {
     expect(text).toContain("ccli setup");
     expect(text).toContain("ccli try");
     expect(text).toContain("ccli questions");
+    expect(text).toContain("ccli answers");
     expect(text).toContain("ccli brief");
     expect(text).toContain("ccli next");
     expect(text).toContain("ccli go");
@@ -53,6 +55,7 @@ describe("experience", () => {
     expect(text).toContain("下一步怎么办");
     expect(text).toContain("试用一下");
     expect(text).toContain("帮我澄清需求");
+    expect(text).toContain("我的回答是");
     expect(text).toContain("整理业务简报");
     expect(text).toContain("给我几个产品模板");
     expect(text).toContain("做第 3 个模板");
@@ -207,6 +210,31 @@ describe("experience", () => {
     expect(text).toContain("打开后第一眼最想看到什么");
     expect(text).toContain("什么情况算首版通过");
     expect(text).toContain("整理业务简报");
+    expect(text).toContain("直接说：做一个客户管理系统，能记录跟进和提醒");
+    expect(text).not.toContain("diff");
+    expect(text).not.toContain("stack");
+    expect(text).not.toContain("```");
+  });
+
+  it("turns clarification answers into a saved-ready boss brief", () => {
+    const brief = createBossBriefFromAnswers({
+      productName: "客户跟进系统",
+      goal: "做一个客户管理系统，能记录跟进和提醒",
+      answers: {
+        audience: "销售和老板",
+        firstScreen: "待跟进客户、高意向客户和今天要联系的人",
+        passCondition: "能新增客户并提醒下一次跟进"
+      },
+      updatedAt: "2026-06-18T10:00:00.000Z"
+    });
+    const text = renderBossBrief(brief);
+
+    expect(brief.audience).toBe("销售和老板");
+    expect(brief.mustHaves.some((item) => item.includes("待跟进客户"))).toBe(true);
+    expect(brief.acceptance.some((item) => item.includes("能新增客户并提醒下一次跟进"))).toBe(true);
+    expect(text).toContain("老板业务简报");
+    expect(text).toContain("已把老板回答沉淀");
+    expect(text).toContain("首版通过条件：能新增客户并提醒下一次跟进");
     expect(text).toContain("直接说：做一个客户管理系统，能记录跟进和提醒");
     expect(text).not.toContain("diff");
     expect(text).not.toContain("stack");
