@@ -231,6 +231,7 @@ export function welcomeCard(): WelcomeCard {
       "安全试用：ccli try",
       "需求追问：ccli questions \"做一个客户管理系统\"",
       "沉淀回答：ccli answers \"销售每天用；第一眼看待跟进客户；首版能新增客户并提醒\"",
+      "按简报开工：ccli launch",
       "整理业务简报：ccli brief \"做一个客户管理系统\"",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
@@ -250,6 +251,7 @@ export function welcomeCard(): WelcomeCard {
       "做一个客户管理系统，能记录跟进和提醒",
       "帮我澄清需求：做一个客户管理系统，能记录跟进和提醒",
       "我的回答是：销售每天用；第一眼看待跟进客户；首版能新增客户并提醒",
+      "按简报生成首版",
       "整理业务简报：做一个客户管理系统，能记录跟进和提醒",
       "下一步怎么办",
       "试用一下",
@@ -1382,10 +1384,11 @@ export function hardwareExamples() {
         choices: ["开始生成首版", "补充要求", "按清单验收"],
         actions: [
           {
-            id: "start-product",
+            id: "launch-from-brief",
             label: "开始生成首版",
-            kind: "utterance",
-            say: "做一个客户管理系统，能记录跟进和提醒",
+            kind: "command",
+            command: "ccli launch --yes",
+            description: "按这份业务简报生成首版产品。",
             requiresConfirmation: true
           },
           {

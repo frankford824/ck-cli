@@ -219,6 +219,39 @@ program
   });
 
 program
+  .command("launch")
+  .aliases(["work", "from-brief"])
+  .description("按已保存业务简报生成首版产品")
+  .option("--name <name>", "项目名称")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--no-preview", "只生成首版，不打开预览")
+  .option("--no-open", "启动预览但不自动打开浏览器")
+  .option("--with-pr", "完成后尝试创建团队审查入口")
+  .action(async (options: { name?: string; host?: string; port?: string; preview?: boolean; open?: boolean; withPr?: boolean }) => {
+    await withCli(async ({ renderer, cwd, expert, yes }) => {
+      const port = Number(options.port ?? "5173");
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+        return;
+      }
+      await launchFromBossBrief({
+        cwd,
+        renderer,
+        expert,
+        yes,
+        name: options.name,
+        preview: options.preview !== false,
+        previewAutoInstall: true,
+        previewOpenBrowser: options.open !== false,
+        previewHost: options.host ?? "127.0.0.1",
+        previewPort: port,
+        withPr: Boolean(options.withPr)
+      });
+    });
+  });
+
+program
   .command("try")
   .alias("demo")
   .description("安全试用：创建一个演示产品并打开页面")
@@ -324,7 +357,7 @@ program
 
 program
   .command("home")
-  .alias("launch")
+  .alias("dashboard")
   .description("打开老板开箱驾驶舱")
   .option("--json", "输出给硬件或自动化使用的结构化结果")
   .action(async (options: { json?: boolean }) => {
@@ -1373,7 +1406,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     }
     const result = await buildOrSaveBossBriefFromAnswers(inputValue.cwd, answer);
     const actions = [
-      utteranceAction("start-product", "开始生成首版", result.brief.goal, "按这份业务简报生成首版产品。", true),
+      commandAction("launch-from-brief", "开始生成首版", "ccli launch --yes", "按这份业务简报生成首版产品。", true),
       utteranceAction("question-card", "继续追问", "帮我澄清需求"),
       utteranceAction("acceptance", "按清单验收", "怎么验收当前产品")
     ];
@@ -1387,6 +1420,53 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "brief-card", brief: result.brief, answers: result.answers, saved: true }
+    ));
+  }
+
+  if (isBriefLaunchRequest(utterance)) {
+    const workspace = await resolveProductWorkspace(inputValue.cwd);
+    const targetCwd = workspace?.cwd ?? inputValue.cwd;
+    const brief = await readBossBrief(targetCwd).catch(() => undefined);
+    if (!brief) {
+      const actions = [
+        utteranceAction("question-card", "先澄清需求", "帮我澄清需求"),
+        utteranceAction("brief-card", "整理业务简报", "整理业务简报：做一个客户管理系统，能记录跟进和提醒")
+      ];
+      return finalize(createHardwareResponse(
+        createExperienceEvent({
+          surface: "hardware",
+          tone: "warning",
+          say: "还没有业务简报。先说帮我澄清需求，或者整理业务简报。",
+          screen: "还没有可开工的业务简报。\n可以说：帮我澄清需求\n也可以说：整理业务简报：做一个客户管理系统，能记录跟进和提醒",
+          choices: choicesFromActions(actions),
+          actions
+        }),
+        { kind: "create-product", ready: false }
+      ));
+    }
+    const name = brief.productName ?? projectNameFromIdea(brief.goal);
+    const command = "ccli launch --yes";
+    const actions = [
+      commandAction("confirm-launch-from-brief", "确认按简报生成首版", command, `将按「${name}」业务简报生成首版产品。`, true),
+      utteranceAction("brief-card", "再看业务简报", "查看业务简报"),
+      utteranceAction("cancel", "先不开始", "取消")
+    ];
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: `已找到${name}的业务简报。确认后可以开始生成首版。`,
+        screen: `${name}\n目标：${brief.goal}\n确认后会按业务简报生成首版产品。`,
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      {
+        kind: "create-product",
+        idea: brief.goal,
+        name,
+        command,
+        fromBrief: true
+      }
     ));
   }
 
@@ -1458,7 +1538,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     const result = await buildOrSaveBossBrief(inputValue.cwd, briefGoalFromNaturalRequest(utterance));
     const actions = result.brief
       ? [
-          utteranceAction("start-product", "开始生成首版", result.brief.goal, "按这份业务简报生成首版产品。", true),
+          commandAction("launch-from-brief", "开始生成首版", "ccli launch --yes", "按这份业务简报生成首版产品。", true),
           utteranceAction("revise-brief", "补充要求", "我想改一下：目标用户和验收标准再写清楚"),
           utteranceAction("acceptance", "按清单验收", "怎么验收当前产品")
         ]
@@ -1820,6 +1900,22 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isBriefLaunchRequest(request)) {
+    await launchFromBossBrief({
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      preview: true,
+      previewAutoInstall: true,
+      previewOpenBrowser: true,
+      previewHost: "127.0.0.1",
+      previewPort: 5173,
+      withPr: false
+    });
+    return true;
+  }
+
   if (isBriefRequest(request)) {
     const result = await buildOrSaveBossBrief(inputValue.cwd, briefGoalFromNaturalRequest(request));
     if (!result.brief) {
@@ -2117,6 +2213,20 @@ interface ParsedBossAnswers extends BossClarificationAnswers {
   productName?: string;
 }
 
+interface BriefLaunchOptions {
+  cwd: string;
+  renderer: ProductRenderer;
+  expert: boolean;
+  yes: boolean;
+  name?: string;
+  preview: boolean;
+  previewAutoInstall: boolean;
+  previewOpenBrowser: boolean;
+  previewHost: string;
+  previewPort: number;
+  withPr: boolean;
+}
+
 async function buildOrSaveBossBrief(cwd: string, goal?: string): Promise<BossBriefResult> {
   const workspace = await resolveProductWorkspace(cwd);
   const targetCwd = workspace?.cwd ?? cwd;
@@ -2175,6 +2285,70 @@ async function buildOrSaveBossBriefFromAnswers(cwd: string, answerText: string):
     usedLatest: Boolean(workspace?.usedLatest),
     targetCwd
   };
+}
+
+async function launchFromBossBrief(inputValue: BriefLaunchOptions): Promise<string | undefined> {
+  const workspace = await resolveProductWorkspace(inputValue.cwd);
+  const targetCwd = workspace?.cwd ?? inputValue.cwd;
+  const brief = await readBossBrief(targetCwd).catch(() => undefined);
+  if (!brief) {
+    print(inputValue.renderer.render({ type: "risk", message: "还没有业务简报。可以先说：帮我澄清需求，或者整理业务简报。", severity: "warning" }));
+    return undefined;
+  }
+
+  const readiness = await previewReadiness(targetCwd).catch(() => undefined);
+  const canContinueExisting = Boolean(readiness?.canPreview);
+  if (workspace?.usedLatest) {
+    print(inputValue.renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(workspace)}。` }));
+  }
+
+  if (canContinueExisting) {
+    print(inputValue.renderer.render({ type: "plan", message: "开始按业务简报推进当前产品。" }));
+    await runRequirement({
+      cwd: targetCwd,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      requirement: brief.goal,
+      withPr: inputValue.withPr
+    });
+    if (workspace?.project) {
+      await touchProjectRegistry(workspace.project.id);
+    }
+    print(inputValue.renderer.render({ type: "done", message: "已按业务简报处理当前产品。", severity: "success" }));
+    if (inputValue.preview) {
+      await ensureDependenciesForPreview({
+        cwd: targetCwd,
+        renderer: inputValue.renderer,
+        yes: inputValue.previewAutoInstall ? true : inputValue.yes
+      });
+      await startPreviewServer({
+        cwd: targetCwd,
+        renderer: inputValue.renderer,
+        host: inputValue.previewHost,
+        port: inputValue.previewPort,
+        openBrowser: inputValue.previewOpenBrowser
+      });
+    }
+    return targetCwd;
+  }
+
+  print(inputValue.renderer.render({ type: "info", message: "开始按业务简报创建首版产品。" }));
+  return createProductFromIdea({
+    cwd: targetCwd,
+    idea: brief.goal,
+    name: inputValue.name ?? brief.productName,
+    brief,
+    install: false,
+    preview: inputValue.preview,
+    previewAutoInstall: inputValue.previewAutoInstall,
+    previewOpenBrowser: inputValue.previewOpenBrowser,
+    previewHost: inputValue.previewHost,
+    previewPort: inputValue.previewPort,
+    withPr: inputValue.withPr,
+    expert: inputValue.expert,
+    yes: inputValue.yes,
+    renderer: inputValue.renderer
+  });
 }
 
 async function readBossBrief(cwd: string): Promise<BossBrief | undefined> {
@@ -2345,10 +2519,11 @@ async function buildAcceptanceGuide(cwd: string) {
 }
 
 async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
-  const [projects, state, readiness] = await Promise.all([
+  const [projects, state, readiness, brief] = await Promise.all([
     readProjectRegistry(),
     readState(cwd).catch(() => undefined),
-    previewReadiness(cwd).catch(() => undefined)
+    previewReadiness(cwd).catch(() => undefined),
+    readBossBrief(cwd).catch(() => undefined)
   ]);
 
   const actions: NextAction[] = [];
@@ -2366,6 +2541,16 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
       reason: "技术细节已经在本地审计记录里，专家模式可以追溯原因。",
       say: "查看最近审计摘要",
       command: "ccli audit --expert"
+    });
+  }
+
+  if (brief && !readiness?.canPreview) {
+    actions.push({
+      id: "launch-from-brief",
+      title: "按简报生成首版",
+      reason: "业务目标和验收标准已经准备好，可以直接开工。",
+      say: "按简报生成首版",
+      command: "ccli launch"
     });
   }
 
@@ -2443,7 +2628,7 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
   });
 
   const unique = uniqueNextActions(actions).slice(0, 4);
-  const summary = nextActionSummary({ state, canPreview: Boolean(readiness?.canPreview), projectCount: projects.length });
+  const summary = nextActionSummary({ state, canPreview: Boolean(readiness?.canPreview), projectCount: projects.length, hasBrief: Boolean(brief) });
   return { summary, actions: unique };
 }
 
@@ -2458,12 +2643,15 @@ function uniqueNextActions(actions: NextAction[]): NextAction[] {
   });
 }
 
-function nextActionSummary(inputValue: { state?: CcliState; canPreview: boolean; projectCount: number }): string {
+function nextActionSummary(inputValue: { state?: CcliState; canPreview: boolean; projectCount: number; hasBrief: boolean }): string {
   if (inputValue.state?.status === "failed") {
     return "建议先处理上一次任务的问题，再继续开发。";
   }
   if (inputValue.canPreview) {
     return "建议先打开当前产品看效果，再决定要改哪里。";
+  }
+  if (inputValue.hasBrief) {
+    return "业务简报已经准备好，建议直接按简报生成首版。";
   }
   if (inputValue.projectCount > 0) {
     return "你已经有产品记录，建议先打开最近产品继续。";
@@ -3065,6 +3253,15 @@ function isAnswerRequest(request: string): boolean {
   );
 }
 
+function isBriefLaunchRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:按|根据|用)?(?:业务简报|需求简报|产品简报|老板简报|简报|回答|这些回答|上面回答).*(?:开始|开工|生成首版|做首版|生成产品|创建产品|开做)/.test(normalized) ||
+    /(?:开始|开工|生成首版|做首版|生成产品|创建产品|开做).*(?:业务简报|需求简报|产品简报|老板简报|简报|回答|这些回答|上面回答)/.test(normalized) ||
+    /^(?:开始做|开始开工|开始生成首版|生成首版|按回答生成首版|按简报开工|按简报生成首版|launch|work|frombrief)$/.test(normalized)
+  );
+}
+
 function isQuestionRequest(request: string): boolean {
   const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
   return (
@@ -3632,6 +3829,7 @@ async function createProductFromIdea(inputValue: {
   cwd: string;
   idea: string;
   name?: string;
+  brief?: BossBrief;
   install: boolean;
   preview: boolean;
   previewAutoInstall: boolean;
@@ -3655,11 +3853,17 @@ async function createProductFromIdea(inputValue: {
   });
   await writeBossBrief(
     target,
-    createBossBrief({
-      goal: inputValue.idea,
-      productName: name,
-      updatedAt: new Date().toISOString()
-    })
+    inputValue.brief
+      ? {
+          ...inputValue.brief,
+          productName: name,
+          updatedAt: new Date().toISOString()
+        }
+      : createBossBrief({
+          goal: inputValue.idea,
+          productName: name,
+          updatedAt: new Date().toISOString()
+        })
   );
   print(inputValue.renderer.render({ type: "plan", message: "项目已准备好，开始按你的目标推进第一轮开发。" }));
   await runRequirement({
