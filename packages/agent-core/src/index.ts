@@ -598,47 +598,30 @@ interface StarterApp {
   stylesCss: string;
 }
 
+type StarterDomain = "crm" | "booking" | "inventory" | "orders" | "finance" | "content" | "general";
+
+interface StarterDomainConfig {
+  heroAction: string;
+  metricLabels: string[];
+  metricValues: string[];
+  workflow: string[];
+  records: Array<{ name: string; next: string; owner: string; status: string }>;
+  quickActions: string[];
+  insight: string;
+}
+
 function starterAppFor(requirement: string, plan: ProductPlan): StarterApp {
   const domain = inferStarterDomain(requirement);
+  const config = starterConfigFor(domain);
   const title = titleForRequirement(requirement);
-  const heroAction = domain === "booking" ? "查看今日预约" : domain === "crm" ? "查看客户跟进" : "查看重点任务";
-  const metricLabels =
-    domain === "booking"
-      ? ["今日预约", "待确认", "空闲时段"]
-      : domain === "crm"
-        ? ["活跃客户", "待跟进", "本周成交"]
-        : ["进行中事项", "待确认", "本周完成"];
-  const workflow =
-    domain === "booking"
-      ? ["客户提交预约", "老板确认时间", "系统提醒到店"]
-      : domain === "crm"
-        ? ["录入客户", "安排跟进", "推进成交"]
-        : ["收集需求", "安排负责人", "检查结果"];
-  const records =
-    domain === "booking"
-      ? [
-          ["张女士", "明天 10:00", "待确认"],
-          ["李先生", "周五 15:30", "已确认"],
-          ["王女士", "今天 18:00", "需改期"]
-        ]
-      : domain === "crm"
-        ? [
-            ["恒星贸易", "报价后跟进", "高意向"],
-            ["青木门店", "下周演示", "推进中"],
-            ["瑞启科技", "合同确认", "待回复"]
-          ]
-        : [
-            ["首页体验优化", "今天确认方向", "进行中"],
-            ["运营数据看板", "补充指标", "待确认"],
-            ["交付验收", "准备说明", "可审查"]
-          ];
   const planSteps = plan.steps.slice(0, 4);
 
   return {
     title,
-    appTsx: `const metrics = ${JSON.stringify(metricLabels.map((label, index) => ({ label, value: ["24", "8", "5"][index] })), null, 2)};
-const workflow = ${JSON.stringify(workflow, null, 2)};
-const records = ${JSON.stringify(records.map(([name, next, status]) => ({ name, next, status })), null, 2)};
+    appTsx: `const metrics = ${JSON.stringify(config.metricLabels.map((label, index) => ({ label, value: config.metricValues[index] })), null, 2)};
+const workflow = ${JSON.stringify(config.workflow, null, 2)};
+const records = ${JSON.stringify(config.records, null, 2)};
+const quickActions = ${JSON.stringify(config.quickActions, null, 2)};
 const plan = ${JSON.stringify(planSteps, null, 2)};
 
 export function App() {
@@ -649,7 +632,7 @@ export function App() {
         <h1>${escapeTsxText(title)}</h1>
         <p className="summary">${escapeTsxText(plan.outcome)}</p>
         <div className="actions">
-          <button>${escapeTsxText(heroAction)}</button>
+          <button>${escapeTsxText(config.heroAction)}</button>
           <span>已按你的中文目标生成，可继续让 ccli 细化。</span>
         </div>
       </section>
@@ -664,6 +647,16 @@ export function App() {
       </section>
 
       <section className="workspace">
+        <div className="panel highlight">
+          <h2>老板先看</h2>
+          <p>${escapeTsxText(config.insight)}</p>
+          <div className="quick-actions">
+            {quickActions.map((action) => (
+              <button key={action} type="button">{action}</button>
+            ))}
+          </div>
+        </div>
+
         <div className="panel">
           <h2>当前流程</h2>
           <ol>
@@ -680,6 +673,7 @@ export function App() {
               <article className="record" key={record.name}>
                 <strong>{record.name}</strong>
                 <span>{record.next}</span>
+                <small>{record.owner}</small>
                 <em>{record.status}</em>
               </article>
             ))}
@@ -719,6 +713,7 @@ button {
   padding: 12px 18px;
   font: inherit;
   font-weight: 700;
+  cursor: pointer;
 }
 
 .page {
@@ -802,12 +797,36 @@ h2 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 0.9fr 1.2fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
 
 .panel {
   padding: 20px;
+}
+
+.highlight {
+  background: #10251f;
+  color: #ffffff;
+}
+
+.highlight p {
+  margin-top: 14px;
+  color: #d7e8e1;
+  line-height: 1.7;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.quick-actions button {
+  background: #ffffff;
+  color: #0f7a5f;
+  padding: 10px 14px;
 }
 
 ol,
@@ -826,7 +845,7 @@ ul {
 
 .record {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto;
+  grid-template-columns: minmax(110px, 1fr) minmax(120px, 1fr) minmax(72px, 0.6fr) auto;
   gap: 12px;
   align-items: center;
   border: 1px solid #e5ebf0;
@@ -836,6 +855,11 @@ ul {
 
 .record span {
   color: #5c6c7a;
+}
+
+.record small {
+  color: #6d7b88;
+  font-size: 14px;
 }
 
 .record em {
@@ -869,7 +893,19 @@ ul {
   };
 }
 
-function inferStarterDomain(requirement: string): "crm" | "booking" | "general" {
+function inferStarterDomain(requirement: string): StarterDomain {
+  if (/库存|仓库|补货|入库|出库|sku|SKU|商品|存货/i.test(requirement)) {
+    return "inventory";
+  }
+  if (/订单|发货|物流|售后|退款|履约|电商/i.test(requirement)) {
+    return "orders";
+  }
+  if (/财务|收支|利润|成本|报销|账单|回款|应收|应付/i.test(requirement)) {
+    return "finance";
+  }
+  if (/官网|内容|文章|发布|素材|品牌|营销|咨询公司/i.test(requirement)) {
+    return "content";
+  }
   if (/客户|销售|跟进|线索|成交|crm/i.test(requirement)) {
     return "crm";
   }
@@ -877,6 +913,104 @@ function inferStarterDomain(requirement: string): "crm" | "booking" | "general" 
     return "booking";
   }
   return "general";
+}
+
+function starterConfigFor(domain: StarterDomain): StarterDomainConfig {
+  const configs: Record<StarterDomain, StarterDomainConfig> = {
+    crm: {
+      heroAction: "查看客户跟进",
+      metricLabels: ["活跃客户", "待跟进", "本周成交"],
+      metricValues: ["128", "17", "9"],
+      workflow: ["录入客户", "安排跟进", "推进成交"],
+      records: [
+        { name: "恒星贸易", next: "报价后跟进", owner: "销售一组", status: "高意向" },
+        { name: "青木门店", next: "下周演示", owner: "张经理", status: "推进中" },
+        { name: "瑞启科技", next: "合同确认", owner: "李经理", status: "待回复" }
+      ],
+      quickActions: ["新增客户", "安排回访", "查看成交预测"],
+      insight: "今天优先跟进高意向客户，先处理待回复合同，再安排下周演示。"
+    },
+    booking: {
+      heroAction: "查看今日预约",
+      metricLabels: ["今日预约", "待确认", "空闲时段"],
+      metricValues: ["24", "8", "5"],
+      workflow: ["客户提交预约", "老板确认时间", "系统提醒到店"],
+      records: [
+        { name: "张女士", next: "明天 10:00", owner: "美甲一店", status: "待确认" },
+        { name: "李先生", next: "周五 15:30", owner: "理疗室", status: "已确认" },
+        { name: "王女士", next: "今天 18:00", owner: "前台", status: "需改期" }
+      ],
+      quickActions: ["确认预约", "调整时间", "发送提醒"],
+      insight: "今天还有 8 个预约需要确认，18:00 的改期请求会影响晚间排班。"
+    },
+    inventory: {
+      heroAction: "查看低库存预警",
+      metricLabels: ["在库 SKU", "低库存", "今日出库"],
+      metricValues: ["842", "19", "126"],
+      workflow: ["同步库存", "识别低库存", "安排补货"],
+      records: [
+        { name: "黑色 T 恤 M", next: "建议补货 200 件", owner: "广州仓", status: "低库存" },
+        { name: "便携水杯", next: "明早出库 48 件", owner: "上海仓", status: "待出库" },
+        { name: "礼盒包装", next: "核对盘点差异", owner: "仓管", status: "需复核" }
+      ],
+      quickActions: ["生成补货单", "查看出库", "导出盘点表"],
+      insight: "低库存集中在热销款，先补黑色 T 恤和礼盒包装，避免影响本周发货。"
+    },
+    orders: {
+      heroAction: "查看待发货订单",
+      metricLabels: ["今日订单", "待发货", "售后处理"],
+      metricValues: ["356", "42", "6"],
+      workflow: ["接收订单", "分配仓库", "跟踪发货"],
+      records: [
+        { name: "订单 20260618-019", next: "等待拣货", owner: "华东仓", status: "待发货" },
+        { name: "订单 20260618-027", next: "物流异常跟进", owner: "客服", status: "需处理" },
+        { name: "订单 20260618-044", next: "售后换货确认", owner: "售后组", status: "待确认" }
+      ],
+      quickActions: ["批量发货", "处理售后", "查看物流异常"],
+      insight: "今日待发货订单主要集中在华东仓，先处理物流异常可以减少客户催单。"
+    },
+    finance: {
+      heroAction: "查看今日收支",
+      metricLabels: ["本月收入", "待回款", "本周支出"],
+      metricValues: ["¥82.4万", "¥16.8万", "¥9.7万"],
+      workflow: ["记录收支", "核对应收", "生成老板报表"],
+      records: [
+        { name: "恒星贸易回款", next: "明天到账核对", owner: "财务", status: "待回款" },
+        { name: "广告投放费用", next: "补充发票", owner: "市场部", status: "待报销" },
+        { name: "门店租金", next: "月底前付款", owner: "行政", status: "待支付" }
+      ],
+      quickActions: ["录入收入", "核对回款", "导出报表"],
+      insight: "本月现金流健康，重点盯住 16.8 万待回款和广告费用发票。"
+    },
+    content: {
+      heroAction: "查看发布计划",
+      metricLabels: ["待发布", "待审核", "本周素材"],
+      metricValues: ["12", "4", "36"],
+      workflow: ["收集素材", "审核内容", "安排发布"],
+      records: [
+        { name: "首页案例更新", next: "补客户结果图", owner: "品牌组", status: "待补充" },
+        { name: "行业洞察文章", next: "老板终审", owner: "内容组", status: "待审核" },
+        { name: "短视频脚本", next: "周五拍摄", owner: "运营", status: "已排期" }
+      ],
+      quickActions: ["新建内容", "安排发布", "查看素材库"],
+      insight: "本周内容重点是案例更新和行业洞察，先补齐客户结果图更利于转化。"
+    },
+    general: {
+      heroAction: "查看重点任务",
+      metricLabels: ["进行中事项", "待确认", "本周完成"],
+      metricValues: ["24", "8", "5"],
+      workflow: ["收集需求", "安排负责人", "检查结果"],
+      records: [
+        { name: "首页体验优化", next: "今天确认方向", owner: "产品", status: "进行中" },
+        { name: "运营数据看板", next: "补充指标", owner: "运营", status: "待确认" },
+        { name: "交付验收", next: "准备说明", owner: "项目", status: "可审查" }
+      ],
+      quickActions: ["新增任务", "查看看板", "生成交付说明"],
+      insight: "当前最适合先确认关键指标，再把任务分配给负责人并跟踪结果。"
+    }
+  };
+
+  return configs[domain];
 }
 
 function titleForRequirement(requirement: string): string {
