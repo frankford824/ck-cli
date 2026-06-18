@@ -36,25 +36,20 @@ describe("experience", () => {
     const text = renderWelcome();
 
     expect(text).toContain("中文开发管家");
-    expect(text).toContain("ccli home");
-    expect(text).toContain("ccli wizard");
-    expect(text).toContain("ccli ready");
-    expect(text).toContain("ccli setup");
-    expect(text).toContain("ccli try");
-    expect(text).toContain("ccli questions");
-    expect(text).toContain("ccli answers");
-    expect(text).toContain("ccli launch");
-    expect(text).toContain("ccli brief");
-    expect(text).toContain("ccli next");
-    expect(text).toContain("ccli go");
-    expect(text).toContain("ccli ideas");
-    expect(text).toContain("ccli ideas 3");
-    expect(text).toContain("ccli projects");
-    expect(text).toContain("ccli open");
+    expect(text).toContain("打开开箱首页");
+    expect(text).toContain("开箱准备");
+    expect(text).toContain("开始首次设置");
+    expect(text).toContain("帮我澄清需求");
+    expect(text).toContain("按简报生成首版");
+    expect(text).toContain("整理业务简报");
+    expect(text).toContain("下一步怎么办");
+    expect(text).toContain("一键做一个客户管理系统并打开页面");
+    expect(text).toContain("给我几个产品模板");
+    expect(text).toContain("做第 3 个模板");
+    expect(text).toContain("查看我的产品");
     expect(text).toContain("打开我上次做的系统");
-    expect(text).toContain("ccli create");
-    expect(text).toContain("ccli preview");
-    expect(text).toContain("ccli chat");
+    expect(text).toContain("打开当前产品页面");
+    expect(text).toContain("进入对话模式");
     expect(text).toContain("下一步怎么办");
     expect(text).toContain("试用一下");
     expect(text).toContain("开工向导");
@@ -65,6 +60,7 @@ describe("experience", () => {
     expect(text).toContain("整理业务简报");
     expect(text).toContain("给我几个产品模板");
     expect(text).toContain("做第 3 个模板");
+    expect(text).not.toMatch(/\bccli\s+[a-z]/i);
     expect(text).not.toContain("diff");
   });
 

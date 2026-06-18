@@ -332,7 +332,7 @@ program
       if (state) {
         print(renderer.render({ type: "info", message: state.summary }));
       } else {
-        print(renderer.render({ type: "info", message: "当前项目还没有任务记录。可以直接输入 ccli do 加上你的需求。" }));
+        print(renderer.render({ type: "info", message: "当前项目还没有任务记录。可以直接说你想让产品变成什么样。" }));
       }
     });
   });
