@@ -390,6 +390,9 @@ describe("experience", () => {
     expect(examples.some((example) => example.data?.kind === "approval-receipt")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "report-card")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
+    const confirmed = examples.find((example) => example.data?.kind === "action-confirmed");
+    expect(confirmed?.event.screen).toContain("可以继续完成这一步");
+    expect(confirmed?.event.screen).not.toContain("控制端");
     expect(examples.some((example) => example.data?.kind === "try-demo")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "undo-confirmation")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);

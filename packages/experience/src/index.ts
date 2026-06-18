@@ -1499,7 +1499,7 @@ export function hardwareExamples() {
         surface: "hardware",
         tone: "success",
         say: "已确认：确认交付并合并。",
-        screen: "已确认：确认交付并合并\n控制端可以继续执行这个动作。",
+        screen: "已确认：确认交付并合并\n可以继续完成这一步。",
         choices: ["确认交付并合并"],
         actions: [
           {

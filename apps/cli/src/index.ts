@@ -1363,7 +1363,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         surface: "hardware",
         tone: "success",
         say: `已确认：${action.label}。`,
-        screen: `已确认：${action.label}\n控制端可以继续执行这个动作。`,
+        screen: `已确认：${action.label}\n可以继续完成这一步。`,
         choices: [action.label],
         actions: [action]
       }),
