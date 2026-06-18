@@ -23,4 +23,11 @@ describe("assessOperation", () => {
     expect(decision.confirmationRequired).toBe(true);
     expect(decision.userMessage).toContain("确认");
   });
+
+  it("requires confirmation for GitHub PR merge", () => {
+    const decision = assessOperation({ kind: "github-merge" });
+
+    expect(decision.confirmationRequired).toBe(true);
+    expect(decision.userMessage).toContain("合入主线");
+  });
 });

@@ -146,7 +146,7 @@ program
       const git = new GitTool();
       print(renderer.progress("save", "正在发送当前成果。"));
       await git.pushCurrent({ cwd, audit, confirmed: true });
-      const result = await new GitHubTool().createDraftPr(
+      const result = await new GitHubTool().createOrFindDraftPr(
         { cwd, audit, confirmed: true },
         {
           title: options.title ?? "ccli 自动交付",
@@ -158,6 +158,92 @@ program
       if (result.url) {
         print(result.url);
       }
+    });
+  });
+
+program
+  .command("ship")
+  .description("自动推送、审查、创建或复用 PR，并可选合并")
+  .option("--title <title>", "审查标题")
+  .option("--body <body>", "审查说明")
+  .option("--merge", "审查通过后自动合并")
+  .option("--method <method>", "合并方式：squash、merge、rebase", "squash")
+  .action(async (options: { title?: string; body?: string; merge?: boolean; method?: string }) => {
+    await withCli(async ({ renderer, cwd, yes }) => {
+      const confirmed = yes || (await confirmChinese("这会发送当前成果并准备团队审查入口。是否继续？"));
+      if (!confirmed) {
+        print(renderer.render({ type: "risk", message: "已取消交付动作。", severity: "warning" }));
+        return;
+      }
+
+      const config = await loadCcliConfig(cwd);
+      const registry = createDefaultProviderRegistry(config);
+      const audit = await AuditSession.create({ cwd, task: "自动交付" });
+      const git = new GitTool();
+      const github = new GitHubTool();
+
+      print(renderer.progress("save", "正在发送当前成果。"));
+      await git.pushCurrent({ cwd, audit, confirmed: true });
+
+      print(renderer.progress("review", "正在进行独立审查。"));
+      const review = await new ReviewerAgent().review({
+        cwd,
+        audit,
+        reviewer: registry.forRole("reviewer", config)
+      });
+
+      const title = options.title ?? "ccli 自动交付";
+      const body = options.body ?? "本次交付由 ccli 创建，详细技术记录保存在本地审计日志。";
+      const pr = await github.createOrFindDraftPr(
+        { cwd, audit, confirmed: true },
+        {
+          title,
+          body,
+          confirmed: true
+        }
+      );
+      print(renderer.render({ type: "pr", message: pr.message, severity: pr.url ? "success" : "warning" }));
+      if (pr.url) {
+        print(pr.url);
+      }
+
+      if (pr.number) {
+        const comment = await github.postReviewSummary({ cwd, audit, confirmed: true }, pr.number, reviewComment(title, review));
+        print(renderer.render({ type: comment.posted ? "done" : "risk", message: comment.message, severity: comment.posted ? "success" : "warning" }));
+      }
+
+      if (!options.merge) {
+        print(renderer.render({ type: "done", message: "团队审查入口已准备好，等待人工确认合并。", severity: "success" }));
+        return;
+      }
+
+      if (!review.passed) {
+        print(renderer.render({ type: "risk", message: "独立审查发现风险，已停止自动合并。", severity: "warning" }));
+        return;
+      }
+
+      if (!pr.number) {
+        print(renderer.render({ type: "risk", message: "没有可合并的团队审查入口，已停止自动合并。", severity: "warning" }));
+        return;
+      }
+
+      const mergeConfirmed = yes || (await confirmChinese("独立审查已通过。现在会把成果合入主线。是否继续？"));
+      if (!mergeConfirmed) {
+        print(renderer.render({ type: "risk", message: "已取消自动合并。", severity: "warning" }));
+        return;
+      }
+
+      const merge = await github.mergePr(
+        { cwd, audit, confirmed: true },
+        {
+          number: pr.number,
+          method: parseMergeMethod(options.method),
+          commitTitle: title,
+          commitMessage: body,
+          confirmed: true
+        }
+      );
+      print(renderer.render({ type: merge.merged ? "done" : "risk", message: merge.message, severity: merge.merged ? "success" : "warning" }));
     });
   });
 
@@ -344,4 +430,17 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
       ])
     )
   };
+}
+
+function reviewComment(title: string, review: Awaited<ReturnType<ReviewerAgent["review"]>>): string {
+  const risks = review.risks.length ? review.risks.map((risk) => `- ${risk}`).join("\n") : "未发现明显风险。";
+  const validation = review.validation === "passed" ? "自动验证已通过。" : review.validation === "failed" ? "自动验证没有全部通过。" : "当前没有可自动执行的验证脚本。";
+  return [`## ccli 自动审查`, "", `交付：${title}`, "", `结论：${review.summary}`, "", `验证：${validation}`, "", `风险：`, risks].join("\n");
+}
+
+function parseMergeMethod(method?: string): "squash" | "merge" | "rebase" {
+  if (method === "merge" || method === "rebase" || method === "squash") {
+    return method;
+  }
+  return "squash";
 }

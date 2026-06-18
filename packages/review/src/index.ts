@@ -21,6 +21,7 @@ export class ReviewerAgent {
     const git = new GitTool();
     const project = new ProjectTool();
     const status = await git.status(input.cwd).catch(() => "");
+    const changedFiles = await git.changedFilesSinceBase(input.cwd).catch(() => []);
     const validationResults = await project.runValidation({ cwd: input.cwd, audit: input.audit, confirmed: true }).catch(
       (error: unknown) => {
         void input.audit?.record("review.validation.error", "验证过程出现问题", serializeError(error));
@@ -38,7 +39,7 @@ export class ReviewerAgent {
             : "failed";
 
     const risks: string[] = [];
-    if (!status.trim()) {
+    if (!status.trim() && changedFiles.length === 0) {
       risks.push("没有发现可交付的新变更。");
     }
     if (validation === "failed") {
@@ -50,7 +51,7 @@ export class ReviewerAgent {
 
     let modelSummary: string | undefined;
     if (input.reviewer) {
-      modelSummary = await this.modelReview(input, status, validation, risks).catch(async (error: unknown) => {
+      modelSummary = await this.modelReview(input, status, changedFiles, validation, risks).catch(async (error: unknown) => {
         await input.audit?.record("review.model.error", "独立模型审查失败", serializeError(error));
         return undefined;
       });
@@ -64,13 +65,14 @@ export class ReviewerAgent {
         : `独立审查发现 ${risks.length} 个需要关注的问题。`);
 
     const result: ReviewResult = { passed, summary, risks, validation };
-    await input.audit?.record("review.result", "独立审查完成", result);
+    await input.audit?.record("review.result", "独立审查完成", { ...result, changedFiles });
     return result;
   }
 
   private async modelReview(
     input: ReviewInput,
     status: string,
+    changedFiles: string[],
     validation: ReviewResult["validation"],
     risks: string[]
   ): Promise<string> {
@@ -92,6 +94,7 @@ export class ReviewerAgent {
           content: JSON.stringify({
             requirement: input.requirement,
             gitStatus: status,
+            changedFiles,
             validation,
             staticRisks: risks
           })

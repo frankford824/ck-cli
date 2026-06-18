@@ -32,11 +32,29 @@ ccli do "添加一个登录页面"
 ccli status
 ccli review
 ccli pr --yes
+ccli ship --yes
+ccli ship --merge --yes
 ccli audit --expert
 ccli roles --expert
 ccli design --expert
 ccli memory search "登录页面" --expert
 ```
+
+## 自动交付
+
+`ccli ship` 会把当前分支发送到远程仓库，运行独立审查，复用或创建 PR，并把审查摘要发布到 PR。默认不会自动合并。
+
+```bash
+ccli ship --yes
+```
+
+如果需要审查通过后自动合并，显式加入：
+
+```bash
+ccli ship --merge --yes
+```
+
+自动合并仍受硬护栏保护：审查不通过、找不到 PR、缺少 GitHub Token 或未登录 GitHub CLI 时都会停止。
 
 ## 配置
 

@@ -8,6 +8,7 @@ export type OperationKind =
   | "git-commit"
   | "git-push"
   | "github-pr"
+  | "github-merge"
   | "install"
   | "validate"
   | "deploy";
@@ -51,10 +52,16 @@ export function assessOperation(operation: OperationRequest): PolicyDecision {
     reasons.push("会删除内容");
   }
 
-  if (operation.kind === "git-push" || operation.kind === "github-pr") {
+  if (operation.kind === "git-push" || operation.kind === "github-pr" || operation.kind === "github-merge") {
     risk = maxRisk(risk, "high");
     confirmationRequired = true;
-    reasons.push(operation.kind === "git-push" ? "会把成果发送到远程仓库" : "会创建团队审查入口");
+    reasons.push(
+      operation.kind === "git-push"
+        ? "会把成果发送到远程仓库"
+        : operation.kind === "github-pr"
+          ? "会创建团队审查入口"
+          : "会把审查后的成果合入主线"
+    );
   }
 
   if (operation.kind === "deploy") {

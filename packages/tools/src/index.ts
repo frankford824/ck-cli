@@ -28,7 +28,40 @@ export interface DraftPrOptions {
 
 export interface DraftPrResult {
   url?: string;
+  number?: number;
   created: boolean;
+  message: string;
+}
+
+export interface PullRequestInfo {
+  number: number;
+  url: string;
+  state: "open" | "closed";
+  draft: boolean;
+  merged: boolean;
+  mergeable?: boolean | null;
+  head: string;
+  base: string;
+  sha: string;
+}
+
+export interface PrCommentResult {
+  posted: boolean;
+  url?: string;
+  message: string;
+}
+
+export interface MergePrOptions {
+  number: number;
+  method?: "squash" | "merge" | "rebase";
+  commitTitle?: string;
+  commitMessage?: string;
+  confirmed?: boolean;
+}
+
+export interface MergePrResult {
+  merged: boolean;
+  url?: string;
   message: string;
 }
 
@@ -126,6 +159,14 @@ export class GitTool {
     return result.stdout.trim();
   }
 
+  async changedFilesSinceBase(cwd: string, base = "origin/main"): Promise<string[]> {
+    const result = await runShell(`git diff --name-only ${quote(base)}...HEAD`, cwd, 30_000);
+    return result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
   async hasChanges(cwd: string): Promise<boolean> {
     return (await this.status(cwd)).length > 0;
   }
@@ -171,6 +212,39 @@ export class GitTool {
 }
 
 export class GitHubTool {
+  async findOpenPrForCurrentBranch(context: ToolContext): Promise<PullRequestInfo | undefined> {
+    const git = new GitTool();
+    const branch = await git.currentBranch(context.cwd);
+    const remote = await getRemote(context.cwd);
+    const parsedRemote = remote ? parseGithubRemote(remote) : undefined;
+    if (!parsedRemote) {
+      return undefined;
+    }
+
+    const prs = await githubApi<PullRequestApi[]>(
+      `/repos/${parsedRemote.owner}/${parsedRemote.repo}/pulls?head=${encodeURIComponent(
+        `${parsedRemote.owner}:${branch}`
+      )}&state=open`
+    );
+    const pr = prs[0];
+    return pr ? mapPullRequest(pr) : undefined;
+  }
+
+  async createOrFindDraftPr(context: ToolContext, options: DraftPrOptions): Promise<DraftPrResult> {
+    const existing = await this.findOpenPrForCurrentBranch(context);
+    if (existing) {
+      await context.audit?.record("tool.github.pr.existing", "已找到现有团队审查入口", existing);
+      return {
+        created: false,
+        number: existing.number,
+        url: existing.url,
+        message: "已找到现有待审查交付链接。"
+      };
+    }
+
+    return this.createDraftPr(context, options);
+  }
+
   async createDraftPr(context: ToolContext, options: DraftPrOptions): Promise<DraftPrResult> {
     const decision = assessOperation({ kind: "github-pr" });
     if (!decision.allowed || (decision.confirmationRequired && !options.confirmed && !context.confirmed)) {
@@ -190,15 +264,15 @@ export class GitHubTool {
     });
 
     if (parsedRemote && process.env.GITHUB_TOKEN) {
-      const url = await createPrWithApi(parsedRemote, {
+      const pr = await createPrWithApi(parsedRemote, {
         title: options.title,
         body: options.body,
         head: branch,
         base,
         token: process.env.GITHUB_TOKEN
       });
-      await context.audit?.record("tool.github.pr.done", "已创建团队审查入口", { url });
-      return { created: true, url, message: "已创建待审查交付链接。" };
+      await context.audit?.record("tool.github.pr.done", "已创建团队审查入口", pr);
+      return { created: true, number: pr.number, url: pr.url, message: "已创建待审查交付链接。" };
     }
 
     const ghAvailable = await commandExists("gh", context.cwd);
@@ -216,13 +290,94 @@ export class GitHubTool {
         throw new Error(result.stderr || result.stdout || "创建团队审查入口失败");
       }
       const url = result.stdout.trim().split(/\s+/).find((part) => part.startsWith("http"));
-      await context.audit?.record("tool.github.pr.done", "已创建团队审查入口", { url, stdout: result.stdout });
-      return { created: true, url, message: "已创建待审查交付链接。" };
+      const number = parsePrNumber(url);
+      await context.audit?.record("tool.github.pr.done", "已创建团队审查入口", { url, number, stdout: result.stdout });
+      return { created: true, number, url, message: "已创建待审查交付链接。" };
     }
 
     return {
       created: false,
       message: "还不能自动创建团队审查入口。请先配置 GitHub Token，或登录 GitHub CLI。"
+    };
+  }
+
+  async postReviewSummary(context: ToolContext, number: number, body: string): Promise<PrCommentResult> {
+    const remote = await getRemote(context.cwd);
+    const parsedRemote = remote ? parseGithubRemote(remote) : undefined;
+    await context.audit?.record("tool.github.review.start", "准备发布审查摘要", { number });
+
+    if (parsedRemote && process.env.GITHUB_TOKEN) {
+      const comment = await githubApi<{ html_url?: string }>(`/repos/${parsedRemote.owner}/${parsedRemote.repo}/issues/${number}/comments`, {
+        method: "POST",
+        body: { body }
+      });
+      await context.audit?.record("tool.github.review.done", "已发布审查摘要", comment);
+      return { posted: true, url: comment.html_url, message: "已把审查摘要发布到团队审查入口。" };
+    }
+
+    const ghAvailable = await commandExists("gh", context.cwd);
+    if (ghAvailable) {
+      const result = await runShell(`gh pr comment ${number} --body ${quote(body)}`, context.cwd, 120_000);
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr || result.stdout || "发布审查摘要失败");
+      }
+      return { posted: true, message: "已把审查摘要发布到团队审查入口。" };
+    }
+
+    return {
+      posted: false,
+      message: "还不能自动发布审查摘要。请先配置 GitHub Token，或登录 GitHub CLI。"
+    };
+  }
+
+  async mergePr(context: ToolContext, options: MergePrOptions): Promise<MergePrResult> {
+    const decision = assessOperation({ kind: "github-merge" });
+    if (!decision.allowed || (decision.confirmationRequired && !options.confirmed && !context.confirmed)) {
+      throw new PolicyBlockedError(decision);
+    }
+
+    const remote = await getRemote(context.cwd);
+    const parsedRemote = remote ? parseGithubRemote(remote) : undefined;
+    const method = options.method ?? "squash";
+    await context.audit?.record("tool.github.merge.start", "准备合并团队审查入口", {
+      number: options.number,
+      method
+    });
+
+    if (parsedRemote && process.env.GITHUB_TOKEN) {
+      const pr = await githubApi<{ html_url?: string; merged?: boolean; message?: string }>(
+        `/repos/${parsedRemote.owner}/${parsedRemote.repo}/pulls/${options.number}/merge`,
+        {
+          method: "PUT",
+          body: {
+            merge_method: method,
+            commit_title: options.commitTitle,
+            commit_message: options.commitMessage
+          }
+        }
+      );
+      await context.audit?.record("tool.github.merge.done", "已合并团队审查入口", pr);
+      return {
+        merged: Boolean(pr.merged),
+        url: pr.html_url,
+        message: pr.merged ? "已把审查后的成果合入主线。" : pr.message ?? "合并没有完成。"
+      };
+    }
+
+    const ghAvailable = await commandExists("gh", context.cwd);
+    if (ghAvailable) {
+      const methodFlag = method === "merge" ? "--merge" : method === "rebase" ? "--rebase" : "--squash";
+      const result = await runShell(`gh pr merge ${options.number} ${methodFlag} --delete-branch`, context.cwd, 120_000);
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr || result.stdout || "合并团队审查入口失败");
+      }
+      await context.audit?.record("tool.github.merge.done", "已合并团队审查入口", result);
+      return { merged: true, message: "已把审查后的成果合入主线。" };
+    }
+
+    return {
+      merged: false,
+      message: "还不能自动合并。请先配置 GitHub Token，或登录 GitHub CLI。"
     };
   }
 }
@@ -369,10 +524,65 @@ function parseGithubRemote(remote: string): { owner: string; repo: string } | un
   return undefined;
 }
 
+interface PullRequestApi {
+  number: number;
+  html_url?: string;
+  state: "open" | "closed";
+  draft?: boolean;
+  merged_at?: string | null;
+  mergeable?: boolean | null;
+  head?: { ref?: string; sha?: string };
+  base?: { ref?: string };
+}
+
+interface GithubRequestOptions {
+  method?: "GET" | "POST" | "PUT";
+  body?: unknown;
+}
+
+async function githubApi<T>(path: string, options: GithubRequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    accept: "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28"
+  };
+  if (process.env.GITHUB_TOKEN) {
+    headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+  if (options.body !== undefined) {
+    headers["content-type"] = "application/json";
+  }
+
+  const response = await fetch(`https://api.github.com${path}`, {
+    method: options.method ?? "GET",
+    headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return (await response.json()) as T;
+}
+
+function mapPullRequest(pr: PullRequestApi): PullRequestInfo {
+  return {
+    number: pr.number,
+    url: pr.html_url ?? "",
+    state: pr.state,
+    draft: Boolean(pr.draft),
+    merged: Boolean(pr.merged_at),
+    mergeable: pr.mergeable,
+    head: pr.head?.ref ?? "",
+    base: pr.base?.ref ?? "",
+    sha: pr.head?.sha ?? ""
+  };
+}
+
 async function createPrWithApi(
   remote: { owner: string; repo: string },
   input: { title: string; body: string; head: string; base: string; token: string }
-): Promise<string> {
+): Promise<{ url?: string; number?: number }> {
   const response = await fetch(`https://api.github.com/repos/${remote.owner}/${remote.repo}/pulls`, {
     method: "POST",
     headers: {
@@ -394,6 +604,11 @@ async function createPrWithApi(
     throw new Error(await response.text());
   }
 
-  const json = (await response.json()) as { html_url?: string };
-  return json.html_url ?? "";
+  const json = (await response.json()) as { html_url?: string; number?: number };
+  return { url: json.html_url, number: json.number };
+}
+
+function parsePrNumber(url?: string): number | undefined {
+  const match = url?.match(/\/pull\/(\d+)/);
+  return match?.[1] ? Number(match[1]) : undefined;
 }
