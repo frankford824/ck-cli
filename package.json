@@ -7,7 +7,7 @@
   "scripts": {
     "build": "pnpm -r --sort --workspace-concurrency=1 build",
     "dev": "node --conditions source --import tsx apps/cli/src/index.ts",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=30000",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm typecheck"
   },

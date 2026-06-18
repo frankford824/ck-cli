@@ -94,6 +94,79 @@ describe("cli boss experience", () => {
     }
   });
 
+  it("scans harness sharing risk without leaking sensitive text", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-scan-"));
+    try {
+      await writeFile(join(cwd, "CCLI.md"), "项目固定事实：OPENAI_API_KEY=sk-testsecretvalue1234567890\n", "utf8");
+      await mkdir(join(cwd, ".ccli", "harness"), { recursive: true });
+      await writeFile(
+        join(cwd, ".ccli", "harness", "settings.json"),
+        `${JSON.stringify({
+          permissions: {
+            autoApprove: ["读取项目说明", "发布到生产"],
+            confirm: [],
+            deny: []
+          }
+        })}\n`,
+        "utf8"
+      );
+
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "harness", "--scan"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("支架共享扫描");
+      expect(stdout).toContain("敏感信息");
+      expect(stdout).toContain("自动权限");
+      expect(stdout).toContain("执行前硬护栏");
+      expect(stdout).not.toContain("sk-testsecretvalue");
+      expect(stdout).not.toContain("CCLI.md");
+      expect(stdout).not.toContain(".ccli/");
+      expect(stdout).not.toMatch(/```/);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps harness status separate from sharing scans", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-status-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "检查当前驾驭系统状态"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("驾驭系统已加载");
+      expect(stdout).toContain("驾驭系统健康度");
+      expect(stdout).not.toContain("支架共享扫描");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("accepts Chinese confirmation for high impact terminal actions", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
     const project = await mkdtemp(join(tmpdir(), "ccli-confirm-product-"));
