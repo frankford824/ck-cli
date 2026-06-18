@@ -19,6 +19,7 @@
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli home` 提供老板开箱驾驶舱：当前状态、最建议动作、可选动作和常见模板放在一个中文首页。
+- `ccli try` 提供安全试用入口：不用模型授权、不改当前目录，直接生成一个演示产品并可打开页面。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
 - `ccli ideas` 提供老板可直接开工的产品场景库，支持按编号或名称直接生成产品，也支持硬件读取结构化场景。
 - `ccli next` 会根据当前项目、最近产品和任务状态给出下一步建议，也支持硬件读取结构化建议。
@@ -45,6 +46,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli home
+ccli try --no-preview
 ccli ready
 ccli resume
 ccli setup
@@ -104,6 +106,7 @@ ccli
 ccli home
 ccli ready
 ccli setup
+ccli try
 ccli next
 ccli go "做一个客户管理系统"
 ccli ideas
@@ -171,6 +174,13 @@ ccli setup
 ```bash
 ccli next
 ccli "下一步怎么办"
+```
+
+想先安全试用、不改当前目录时：
+
+```bash
+ccli try
+ccli "试用一下"
 ```
 
 不知道先做什么时：
@@ -497,6 +507,7 @@ ccli hardware "开箱准备" --json
 ccli hardware "继续上次任务" --json
 ccli hardware "取消" --json
 ccli hardware "帮助" --json
+ccli hardware "试用一下" --json
 ccli hardware "我第一次用怎么开始" --json
 ccli hardware "怎么验收当前产品" --json
 ccli hardware "我想改一下：首页太乱，重点不够明显" --json

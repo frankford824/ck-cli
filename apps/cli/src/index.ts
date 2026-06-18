@@ -205,6 +205,34 @@ program
   });
 
 program
+  .command("try")
+  .alias("demo")
+  .description("安全试用：创建一个演示产品并打开页面")
+  .option("--name <name>", "试用产品名称")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--no-preview", "只生成试用产品，不打开预览")
+  .option("--no-open", "启动预览但不自动打开浏览器")
+  .action(async (options: { name?: string; host?: string; port?: string; preview?: boolean; open?: boolean }) => {
+    await withCli(async ({ renderer, expert }) => {
+      const port = Number(options.port ?? "5173");
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+        return;
+      }
+      await runTryDemo({
+        renderer,
+        expert,
+        name: options.name,
+        preview: options.preview !== false,
+        previewOpenBrowser: options.open !== false,
+        previewHost: options.host ?? "127.0.0.1",
+        previewPort: port
+      });
+    });
+  });
+
+program
   .command("start")
   .description("启动中文任务会话")
   .action(async () => {
@@ -950,6 +978,7 @@ function controlCancelledScreen(): string {
 function controlHelpScreen(): string {
   return [
     "你可以直接这样说：",
+    "试用一下",
     "下一步怎么办",
     "给我几个产品模板",
     "打开当前产品页面",
@@ -1123,6 +1152,25 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "control-help" }
+    ));
+  }
+
+  if (isTryDemoRequest(utterance)) {
+    const actions = [
+      commandAction("start-demo", "开始安全试用", "ccli try", "会在本机试用区创建演示产品，并尝试打开本地页面。", true),
+      utteranceAction("ideas", "先看产品模板", "给我几个产品模板"),
+      utteranceAction("next", "下一步怎么办", "下一步怎么办")
+    ];
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "可以先安全试用一遍。确认后会创建一个演示产品，不会改当前项目。",
+        screen: "安全试用\n确认后会在本机试用区创建演示产品，并打开页面让你验收。",
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "try-demo" }
     ));
   }
 
@@ -1459,6 +1507,18 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isTryDemoRequest(request)) {
+    await runTryDemo({
+      renderer: inputValue.renderer,
+      expert: inputValue.expert,
+      preview: true,
+      previewOpenBrowser: true,
+      previewHost: "127.0.0.1",
+      previewPort: 5173
+    });
+    return true;
+  }
+
   if (isProjectListRequest(request)) {
     await renderKnownProjects({ renderer: inputValue.renderer, expert: inputValue.expert, json: false });
     return true;
@@ -1767,6 +1827,16 @@ async function buildNextActionPlan(cwd: string): Promise<NextActionPlan> {
   }
 
   const hasCurrentProduct = Boolean(readiness?.canPreview);
+  if (!projects.length && !hasCurrentProduct) {
+    actions.push({
+      id: "try-demo",
+      title: "先安全试用一遍",
+      reason: "不用模型授权，也不改当前目录，先看到一套演示产品是否能跑起来。",
+      say: "试用一下",
+      command: "ccli try"
+    });
+  }
+
   actions.push({
     id: "starter-ideas",
     title: projects.length || hasCurrentProduct ? "新开一个产品" : "从模板直接开工",
@@ -1813,7 +1883,54 @@ function nextActionSummary(inputValue: { state?: CcliState; canPreview: boolean;
   if (inputValue.projectCount > 0) {
     return "你已经有产品记录，建议先打开最近产品继续。";
   }
-  return "当前还没有产品，建议先从一个常见场景直接开工。";
+  return "当前还没有产品，建议先安全试用一遍，马上看到可运行页面。";
+}
+
+async function runTryDemo(inputValue: {
+  renderer: ProductRenderer;
+  expert: boolean;
+  name?: string;
+  preview: boolean;
+  previewOpenBrowser: boolean;
+  previewHost: string;
+  previewPort: number;
+}): Promise<void> {
+  const demoRoot = resolve(homedir(), ".ccli", "tryouts");
+  const name = inputValue.name?.trim() || defaultTryDemoName();
+  const idea = "做一个客户管理系统，能记录跟进、提醒回访、老板能看高意向客户";
+  await mkdir(demoRoot, { recursive: true });
+  print(inputValue.renderer.render({ type: "info", message: "开始安全试用。演示产品会放在本机试用区，不会改当前项目。" }));
+  const target = await createProductFromIdea({
+    cwd: demoRoot,
+    idea,
+    name,
+    install: false,
+    preview: inputValue.preview,
+    previewAutoInstall: true,
+    previewOpenBrowser: inputValue.previewOpenBrowser,
+    previewHost: inputValue.previewHost,
+    previewPort: inputValue.previewPort,
+    withPr: false,
+    expert: inputValue.expert,
+    yes: true,
+    renderer: inputValue.renderer
+  });
+  print(
+    inputValue.renderer.render({
+      type: "done",
+      message: "安全试用产品已生成。后续可以说“打开我上次做的系统”继续查看，也可以直接说自己的真实业务目标。",
+      severity: "success"
+    })
+  );
+  if (inputValue.expert) {
+    print(`试用项目位置：${target}`);
+  }
+}
+
+function defaultTryDemoName(): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+  const suffix = Math.random().toString(36).slice(2, 5);
+  return `ccli试用客户跟进-${stamp}-${suffix}`;
 }
 
 async function launchStarterIdea(inputValue: {
@@ -2299,6 +2416,13 @@ function isIdeaCatalogRequest(request: string): boolean {
 function isHarnessInitRequest(request: string): boolean {
   return /(?:初始化|补齐|搭建|启用|安装).*(?:驾驭系统|harness|智能体支架|开发支架|项目指南|项目规则)/i.test(request) ||
     /(?:驾驭系统|harness|智能体支架|开发支架).*(?:初始化|补齐|搭建|启用|安装)/i.test(request);
+}
+
+function isTryDemoRequest(request: string): boolean {
+  return /^(?:我想|我要|帮我|给我|先)?\s*(?:安全)?(?:试用|体验|演示|demo|try)(?:一下|一遍|看看|流程|产品|系统|开箱)?\s*$/i.test(request) ||
+    /(?:安全试用|开箱演示|演示产品|试用一下|体验一下|跑个演示|开个演示|先体验)/i.test(request) ||
+    /(?:先|给我|帮我).*(?:开|做|跑|生成).*(?:演示|demo)/i.test(request) ||
+    /(?:不用|不想).*(?:配置|授权|模型).*(?:先)?(?:体验|试用|看看)/i.test(request);
 }
 
 function isHarnessMethodRequest(request: string): boolean {

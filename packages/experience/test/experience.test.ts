@@ -29,6 +29,7 @@ describe("experience", () => {
     expect(text).toContain("ccli home");
     expect(text).toContain("ccli ready");
     expect(text).toContain("ccli setup");
+    expect(text).toContain("ccli try");
     expect(text).toContain("ccli next");
     expect(text).toContain("ccli go");
     expect(text).toContain("ccli ideas");
@@ -40,6 +41,7 @@ describe("experience", () => {
     expect(text).toContain("ccli preview");
     expect(text).toContain("ccli chat");
     expect(text).toContain("下一步怎么办");
+    expect(text).toContain("试用一下");
     expect(text).toContain("给我几个产品模板");
     expect(text).toContain("做第 3 个模板");
     expect(text).not.toContain("diff");
@@ -200,6 +202,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("acceptance-guide");
     expect(hardwareManifest().output).toContain("revision-request");
     expect(hardwareManifest().output).toContain("delivery-confirmation");
+    expect(hardwareManifest().output).toContain("try-demo");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");
@@ -219,11 +222,13 @@ describe("experience", () => {
     expect(schema.kinds).toContain("control-cancelled");
     expect(schema.kinds).toContain("revision-request");
     expect(schema.kinds).toContain("delivery-confirmation");
+    expect(schema.kinds).toContain("try-demo");
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "try-demo")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);
     expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });
