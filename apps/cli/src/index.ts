@@ -255,6 +255,87 @@ program
   });
 
 program
+  .command("projects")
+  .alias("apps")
+  .description("查看已经创建过的产品")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    await withCli(async ({ renderer, expert }) => {
+      const projects = await readProjectRegistry();
+      if (options.json) {
+        print(JSON.stringify(projects.map((project, index) => projectSummary(project, index)), null, 2));
+        return;
+      }
+      if (!projects.length) {
+        print(renderer.render({ type: "info", message: "还没有保存过产品。可以先用 ccli go 说出想做的产品。" }));
+        return;
+      }
+      print(renderer.render({ type: "info", message: `已找到 ${projects.length} 个产品。` }));
+      for (const [index, project] of projects.entries()) {
+        const recent = project.lastOpenedAt ? `最近打开：${formatShortDate(project.lastOpenedAt)}` : `创建时间：${formatShortDate(project.createdAt)}`;
+        print(`${index + 1}. ${project.name}。${recent}`);
+        if (expert) {
+          print(`   ${project.path}`);
+        }
+      }
+    });
+  });
+
+program
+  .command("open")
+  .argument("[project]", "产品序号或名称")
+  .description("打开已经创建过的产品预览")
+  .option("--install", "缺少依赖时自动安装")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--check", "只检查这个产品是否准备好，不启动")
+  .option("--no-open", "启动预览但不自动打开浏览器")
+  .action(async (projectKey: string | undefined, options: { install?: boolean; host?: string; port?: string; check?: boolean; open?: boolean }) => {
+    await withCli(async ({ renderer, yes }) => {
+      const projects = await readProjectRegistry();
+      if (!projects.length) {
+        print(renderer.render({ type: "info", message: "还没有保存过产品。可以先用 ccli go 创建一个。" }));
+        return;
+      }
+      const project = resolveProjectSelection(projects, projectKey);
+      if (!project) {
+        print(renderer.render({ type: "risk", message: "没有找到这个产品。可以先查看产品列表。", severity: "warning" }));
+        return;
+      }
+      const port = Number(options.port ?? "5173");
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+        return;
+      }
+      const readiness = await previewReadiness(project.path);
+      if (!readiness.canPreview) {
+        print(renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
+        return;
+      }
+      if (!readiness.hasDependencies) {
+        if (!options.install) {
+          print(renderer.render({ type: "risk", message: "这个产品还没有准备好本地运行内容。你可以让 ccli 自动准备后再打开。", severity: "warning" }));
+          return;
+        }
+        await ensureDependenciesForPreview({ cwd: project.path, renderer, yes });
+      }
+      await touchProjectRegistry(project.id);
+      if (options.check) {
+        print(renderer.render({ type: "done", message: `${project.name} 已经可以打开。`, severity: "success" }));
+        return;
+      }
+      print(renderer.render({ type: "info", message: `正在打开 ${project.name}。` }));
+      await startPreviewServer({
+        cwd: project.path,
+        renderer,
+        host: options.host ?? "127.0.0.1",
+        port,
+        openBrowser: options.open !== false
+      });
+    });
+  });
+
+program
   .command("setup")
   .description("用中文完成首次设置")
   .option("--provider <name>", "模型服务：openai、anthropic、google、qwen、deepseek、kimi")
@@ -696,6 +777,16 @@ interface PreviewReadiness {
   message: string;
 }
 
+interface KnownProject {
+  id: string;
+  name: string;
+  idea?: string;
+  path: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
 async function previewReadiness(cwd: string): Promise<PreviewReadiness> {
   const project = new ProjectTool();
   const scripts = await project.packageScripts(cwd);
@@ -973,6 +1064,11 @@ async function createProductFromIdea(inputValue: {
     requirement: inputValue.idea,
     withPr: inputValue.withPr
   });
+  await rememberProject({
+    name,
+    idea: inputValue.idea,
+    path: target
+  });
   print(inputValue.renderer.render({ type: "done", message: "第一个版本已处理完成。后续可以继续用中文提需求。", severity: "success" }));
   if (inputValue.preview) {
     await ensureDependenciesForPreview({
@@ -989,6 +1085,124 @@ async function createProductFromIdea(inputValue: {
     });
   }
   return target;
+}
+
+async function rememberProject(inputValue: { name: string; idea: string; path: string }): Promise<KnownProject> {
+  const projects = await readProjectRegistry();
+  const now = new Date().toISOString();
+  const projectPath = resolve(inputValue.path);
+  const existing = projects.find((project) => resolve(project.path) === projectPath);
+  const next: KnownProject = {
+    id: existing?.id ?? projectIdFromName(inputValue.name, now),
+    name: inputValue.name,
+    idea: inputValue.idea,
+    path: projectPath,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastOpenedAt: existing?.lastOpenedAt
+  };
+  const merged = [next, ...projects.filter((project) => project.id !== next.id && resolve(project.path) !== projectPath)].slice(0, 100);
+  await writeProjectRegistry(merged);
+  return next;
+}
+
+async function touchProjectRegistry(id: string): Promise<void> {
+  const projects = await readProjectRegistry();
+  const now = new Date().toISOString();
+  const updated = projects.map((project) =>
+    project.id === id ? { ...project, updatedAt: now, lastOpenedAt: now } : project
+  );
+  await writeProjectRegistry(sortProjects(updated));
+}
+
+async function readProjectRegistry(): Promise<KnownProject[]> {
+  try {
+    const parsed = JSON.parse(await readFile(projectRegistryPath(), "utf8")) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return sortProjects(parsed.filter(isKnownProject));
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    return [];
+  }
+}
+
+async function writeProjectRegistry(projects: KnownProject[]): Promise<void> {
+  const path = projectRegistryPath();
+  await mkdir(resolve(path, ".."), { recursive: true });
+  await writeFile(path, `${JSON.stringify(sortProjects(projects), null, 2)}\n`, "utf8");
+  await chmod(path, 0o600).catch(() => undefined);
+}
+
+function resolveProjectSelection(projects: KnownProject[], key: string | undefined): KnownProject | undefined {
+  if (!key?.trim()) {
+    return projects[0];
+  }
+  const trimmed = key.trim();
+  const index = Number(trimmed);
+  if (Number.isInteger(index) && index >= 1 && index <= projects.length) {
+    return projects[index - 1];
+  }
+  const normalized = trimmed.toLowerCase();
+  return (
+    projects.find((project) => project.id === trimmed) ??
+    projects.find((project) => project.name === trimmed) ??
+    projects.find((project) => project.name.toLowerCase().includes(normalized))
+  );
+}
+
+function projectSummary(project: KnownProject, index: number) {
+  return {
+    number: index + 1,
+    id: project.id,
+    name: project.name,
+    summary: project.idea,
+    lastOpenedAt: project.lastOpenedAt,
+    updatedAt: project.updatedAt
+  };
+}
+
+function sortProjects(projects: KnownProject[]): KnownProject[] {
+  return [...projects].sort((left, right) => projectTime(right) - projectTime(left));
+}
+
+function projectTime(project: KnownProject): number {
+  return Date.parse(project.lastOpenedAt ?? project.updatedAt ?? project.createdAt) || 0;
+}
+
+function isKnownProject(value: unknown): value is KnownProject {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const project = value as Partial<KnownProject>;
+  return Boolean(project.id && project.name && project.path && project.createdAt && project.updatedAt);
+}
+
+function projectRegistryPath(): string {
+  return resolve(homedir(), ".ccli", "projects.json");
+}
+
+function projectIdFromName(name: string, timestamp: string): string {
+  const slug =
+    name
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "project";
+  return `${slug}-${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function formatShortDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "未知时间";
+  }
+  const datePart = date.toISOString().slice(0, 10);
+  const timePart = date.toTimeString().slice(0, 5);
+  return `${datePart} ${timePart}`;
 }
 
 async function createBossProject(inputValue: {

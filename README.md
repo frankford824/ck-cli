@@ -17,6 +17,7 @@
 - 借鉴 Harness Engineering：内置确定性项目指南、阶段工具预算、验证失败反馈闭环和 `.ccli/progress.json` 进度落盘。
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
+- 本机项目库会记住创建过的产品，后续可用 `ccli projects` 查看、`ccli open` 打开最近产品。
 
 ## 一键安装
 
@@ -94,6 +95,8 @@ pnpm dev --help
 ccli
 ccli setup
 ccli go "做一个客户管理系统"
+ccli projects
+ccli open
 ccli create "做一个客户管理系统"
 ccli preview --install
 ccli doctor
@@ -200,6 +203,34 @@ ccli go "做一个门店预约系统" --no-preview
 
 ```bash
 ccli go "做一个门店预约系统" --no-open
+```
+
+## 我的产品库
+
+ccli 会把通过 `go` 或 `create` 创建过的产品保存到本机项目库。老板不用记目录，后续直接查看或打开：
+
+```bash
+ccli projects
+ccli open
+```
+
+`ccli open` 默认打开最近使用的产品。如果想打开列表中的指定产品：
+
+```bash
+ccli open 2
+ccli open 客户管理
+```
+
+如果只想确认这个产品是否已经可以打开：
+
+```bash
+ccli open 1 --install --check
+```
+
+远程服务器或硬件壳层只想拿到产品清单时：
+
+```bash
+ccli projects --json
 ```
 
 ## 一句话创建产品
