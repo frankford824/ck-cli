@@ -199,6 +199,7 @@ program
         {
           title,
           body,
+          draft: !options.merge,
           confirmed: true
         }
       );
@@ -225,6 +226,14 @@ program
       if (!pr.number) {
         print(renderer.render({ type: "risk", message: "没有可合并的团队审查入口，已停止自动合并。", severity: "warning" }));
         return;
+      }
+
+      if (pr.draft) {
+        const ready = await github.markReadyForReview({ cwd, audit, confirmed: true }, pr.number);
+        print(renderer.render({ type: ready.posted ? "done" : "risk", message: ready.message, severity: ready.posted ? "success" : "warning" }));
+        if (!ready.posted) {
+          return;
+        }
       }
 
       const mergeConfirmed = yes || (await confirmChinese("独立审查已通过。现在会把成果合入主线。是否继续？"));

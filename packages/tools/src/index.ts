@@ -23,12 +23,14 @@ export interface DraftPrOptions {
   title: string;
   body: string;
   base?: string;
+  draft?: boolean;
   confirmed?: boolean;
 }
 
 export interface DraftPrResult {
   url?: string;
   number?: number;
+  draft?: boolean;
   created: boolean;
   message: string;
 }
@@ -238,6 +240,7 @@ export class GitHubTool {
         created: false,
         number: existing.number,
         url: existing.url,
+        draft: existing.draft,
         message: "已找到现有待审查交付链接。"
       };
     }
@@ -269,10 +272,17 @@ export class GitHubTool {
         body: options.body,
         head: branch,
         base,
+        draft: options.draft ?? true,
         token: process.env.GITHUB_TOKEN
       });
       await context.audit?.record("tool.github.pr.done", "已创建团队审查入口", pr);
-      return { created: true, number: pr.number, url: pr.url, message: "已创建待审查交付链接。" };
+      return {
+        created: true,
+        number: pr.number,
+        url: pr.url,
+        draft: options.draft ?? true,
+        message: "已创建待审查交付链接。"
+      };
     }
 
     const ghAvailable = await commandExists("gh", context.cwd);
@@ -280,7 +290,7 @@ export class GitHubTool {
       const command = [
         "gh pr create",
         ghRepoFlag(parsedRemote),
-        "--draft",
+        options.draft === false ? "" : "--draft",
         `--title ${quote(options.title)}`,
         `--body ${quote(options.body)}`,
         `--base ${quote(base)}`,
@@ -295,7 +305,13 @@ export class GitHubTool {
       const url = result.stdout.trim().split(/\s+/).find((part) => part.startsWith("http"));
       const number = parsePrNumber(url);
       await context.audit?.record("tool.github.pr.done", "已创建团队审查入口", { url, number, stdout: result.stdout });
-      return { created: true, number, url, message: "已创建待审查交付链接。" };
+      return {
+        created: true,
+        number,
+        url,
+        draft: options.draft ?? true,
+        message: "已创建待审查交付链接。"
+      };
     }
 
     return {
@@ -328,12 +344,38 @@ export class GitHubTool {
       if (result.exitCode !== 0) {
         throw new Error(result.stderr || result.stdout || "发布审查摘要失败");
       }
+      await context.audit?.record("tool.github.review.done", "已发布审查摘要", result);
       return { posted: true, message: "已把审查摘要发布到团队审查入口。" };
     }
 
     return {
       posted: false,
       message: "还不能自动发布审查摘要。请先完成代码托管平台授权。"
+    };
+  }
+
+  async markReadyForReview(context: ToolContext, number: number): Promise<PrCommentResult> {
+    const remote = await getRemote(context.cwd);
+    const parsedRemote = remote ? parseGithubRemote(remote) : undefined;
+    await context.audit?.record("tool.github.ready.start", "准备开放团队审查入口", { number });
+
+    const ghAvailable = await commandExists("gh", context.cwd);
+    if (ghAvailable) {
+      const result = await runShell(
+        ["gh pr ready", ghRepoFlag(parsedRemote), String(number)].filter(Boolean).join(" "),
+        context.cwd,
+        120_000
+      );
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr || result.stdout || "开放团队审查入口失败");
+      }
+      await context.audit?.record("tool.github.ready.done", "团队审查入口已开放", result);
+      return { posted: true, message: "团队审查入口已开放，可以合并。" };
+    }
+
+    return {
+      posted: false,
+      message: "还不能自动开放团队审查入口。请先完成代码托管平台授权。"
     };
   }
 
@@ -598,7 +640,7 @@ function mapPullRequest(pr: PullRequestApi): PullRequestInfo {
 
 async function createPrWithApi(
   remote: { owner: string; repo: string },
-  input: { title: string; body: string; head: string; base: string; token: string }
+  input: { title: string; body: string; head: string; base: string; draft: boolean; token: string }
 ): Promise<{ url?: string; number?: number }> {
   const response = await fetch(`https://api.github.com/repos/${remote.owner}/${remote.repo}/pulls`, {
     method: "POST",
@@ -613,7 +655,7 @@ async function createPrWithApi(
       body: input.body,
       head: input.head,
       base: input.base,
-      draft: true
+      draft: input.draft
     })
   });
 
