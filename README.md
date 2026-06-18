@@ -475,6 +475,7 @@ ccli harness --expert
 - 协议示例，可用 `ccli hardware --examples` 读取
 - 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
 - 控制口令，可用 `ccli hardware "取消" --json` 或 `ccli hardware "帮助" --json` 读取
+- 二次确认口令，可在高影响动作后继续调用 `ccli hardware "确认" --json` 读取 `action-confirmed`
 
 协议不暴露代码、命令、路径和堆栈，保证用户体验保持普通中文产品语义。
 
@@ -490,6 +491,7 @@ ccli hardware "我第一次用怎么开始" --json
 ccli hardware "怎么验收当前产品" --json
 ccli hardware "我想改一下：首页太乱，重点不够明显" --json
 ccli hardware "我满意，准备交付" --json
+ccli hardware "确认" --json
 ccli hardware "给我几个产品模板" --json
 ccli hardware "做一个库存看板，能看低库存" --json
 ccli hardware "查看我的产品" --json
