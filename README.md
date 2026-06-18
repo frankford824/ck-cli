@@ -447,6 +447,8 @@ ccli harness --expert
 - 老板验收清单，可用 `ccli accept --json` 读取
 - 产品场景库，可用 `ccli ideas --json` 读取
 - 下一步建议，可用 `ccli next --json` 读取
+- 协议字段说明，可用 `ccli hardware --schema` 读取
+- 协议示例，可用 `ccli hardware --examples` 读取
 - 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
 
 协议不暴露代码、命令、路径和堆栈，保证用户体验保持普通中文产品语义。
@@ -457,9 +459,12 @@ ccli harness --expert
 ccli hardware "下一步怎么办" --json
 ccli hardware "我第一次用怎么开始" --json
 ccli hardware "怎么验收当前产品" --json
+ccli hardware "我满意，准备交付" --json
 ccli hardware "给我几个产品模板" --json
 ccli hardware "做一个库存看板，能看低库存" --json
 ccli hardware "查看我的产品" --json
+ccli hardware --schema
+ccli hardware --examples
 ```
 
 ## 自动交付

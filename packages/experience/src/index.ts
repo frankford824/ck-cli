@@ -453,6 +453,117 @@ export function hardwareManifest() {
   };
 }
 
+export function hardwareSchema() {
+  return {
+    protocol: "ccli-experience-protocol",
+    version: 1,
+    response: {
+      protocol: "固定值：ccli-experience-protocol",
+      version: "固定值：1",
+      event: {
+        surface: ["hardware", "voice", "terminal", "remote"],
+        tone: ["calm", "asking", "success", "warning", "blocked"],
+        say: "给语音设备朗读的中文短句",
+        screen: "给屏幕展示的中文内容，可比朗读内容更完整",
+        choices: "兼容简单设备的按钮文字数组",
+        actions: [
+          {
+            id: "稳定动作标识",
+            label: "按钮显示文字",
+            kind: ["utterance", "command"],
+            say: "再次交给 ccli 的中文说法，kind 为 utterance 时使用",
+            command: "需要终端执行的命令，kind 为 command 时使用",
+            description: "中文影响说明",
+            requiresConfirmation: "高影响动作是否必须确认"
+          }
+        ]
+      },
+      data: "按 kind 返回的结构化数据"
+    },
+    kinds: [
+      "welcome",
+      "boss-home",
+      "next-action",
+      "idea-catalog",
+      "project-catalog",
+      "open-project",
+      "preview-current",
+      "acceptance-guide",
+      "delivery-confirmation",
+      "create-product",
+      "health-check",
+      "fallback"
+    ],
+    safety: [
+      "普通用户界面只展示中文产品语义",
+      "创建产品、打开终端命令、发送远端、交付和合并必须由硬件侧二次确认",
+      "不要把代码、路径、命令、堆栈或原始模型输出朗读给用户",
+      "command 动作只给受信任的控制端使用，普通语音设备优先回传 say"
+    ]
+  };
+}
+
+export function hardwareExamples() {
+  const nextActions = [
+    {
+      id: "home",
+      label: "打开开箱首页",
+      kind: "utterance" as const,
+      say: "打开开箱首页",
+      description: "回到老板开箱驾驶舱",
+      requiresConfirmation: false
+    },
+    {
+      id: "ideas",
+      label: "给我几个产品模板",
+      kind: "utterance" as const,
+      say: "给我几个产品模板",
+      description: "查看常见产品场景",
+      requiresConfirmation: false
+    }
+  ];
+  return [
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "当前还没有产品，建议先从一个常见场景直接开工。",
+        screen: "老板开箱驾驶舱\n当前还没有产品。\n可以先看产品模板，也可以直接说想做什么。",
+        choices: nextActions.map((action) => action.label),
+        actions: nextActions
+      }),
+      { kind: "boss-home" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "我理解你已经满意，准备交付。这个动作需要确认。",
+        screen: "准备交付\n确认后会发送成果、独立审查，并在审查通过后合并。",
+        choices: ["确认交付并合并", "再看验收清单", "我还想改"],
+        actions: [
+          {
+            id: "confirm-delivery",
+            label: "确认交付并合并",
+            kind: "command",
+            command: "ccli finish --yes",
+            description: "会发送成果、进行独立审查，并在审查通过后合并。",
+            requiresConfirmation: true
+          },
+          {
+            id: "acceptance",
+            label: "再看验收清单",
+            kind: "utterance",
+            say: "怎么验收当前产品",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "delivery-confirmation" }
+    )
+  ];
+}
+
 function firstCheckFromGoal(goal?: string): string | undefined {
   if (!goal) {
     return undefined;

@@ -4,7 +4,9 @@ import {
   createBossHome,
   createExperienceEvent,
   createHardwareResponse,
+  hardwareExamples,
   hardwareManifest,
+  hardwareSchema,
   healthSummary,
   renderAcceptanceGuide,
   renderBossHome,
@@ -144,5 +146,17 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");
+  });
+
+  it("exposes hardware schema and examples for device integration", () => {
+    const schema = hardwareSchema();
+    const examples = hardwareExamples();
+
+    expect(schema.protocol).toBe("ccli-experience-protocol");
+    expect(schema.kinds).toContain("boss-home");
+    expect(schema.kinds).toContain("delivery-confirmation");
+    expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
+    expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
+    expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });
 });
