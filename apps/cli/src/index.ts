@@ -759,6 +759,11 @@ program
         return;
       }
 
+      if (options.json) {
+        print(JSON.stringify(await buildHardwareHomeResponse(cwd), null, 2));
+        return;
+      }
+
       print(renderer.render({ type: "info", message: "ccli 已预留语音和智能硬件交互协议。" }));
       if (expert) {
         print(JSON.stringify(hardwareManifest(), null, 2));
@@ -1176,10 +1181,22 @@ function commandAction(id: string, label: string, command: string, description?:
 }
 
 function nextPlanActions(plan: NextActionPlan): ExperienceAction[] {
-  return plan.actions.map((action) =>
-    action.command
-      ? commandAction(action.id, action.title, action.command, action.reason)
-      : utteranceAction(action.id, action.title, action.say, action.reason)
+  return plan.actions.map((action) => utteranceAction(action.id, action.title, action.say, action.reason));
+}
+
+async function buildHardwareHomeResponse(cwd: string): Promise<HardwareResponse> {
+  const home = await buildBossHome(cwd);
+  const actions = nextPlanActions({ summary: home.summary, actions: home.actions });
+  return createHardwareResponse(
+    createExperienceEvent({
+      surface: "hardware",
+      tone: "asking",
+      say: `${home.readiness} ${home.summary}`,
+      screen: renderBossHome(home),
+      choices: choicesFromActions(actions),
+      actions
+    }),
+    { kind: "boss-home", home }
   );
 }
 

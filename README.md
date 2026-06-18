@@ -604,7 +604,8 @@ ccli harness --expert
 - 可选按钮/选择项
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
-- 老板开箱驾驶舱，可用 `ccli home --json` 读取
+- 硬件开机首屏，可用 `ccli hardware --json` 读取动态老板开箱驾驶舱
+- 老板开箱驾驶舱，可用 `ccli home --json` 读取结构化首页数据
 - 老板开工向导，可用 `ccli hardware "开工向导：做一个客户管理系统" --json` 获取终端向导动作
 - 老板需求追问卡，可用 `ccli questions --json` 读取
 - 老板回答沉淀，可用 `ccli answers --json` 读取

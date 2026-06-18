@@ -375,6 +375,12 @@ describe("experience", () => {
     expect(schema.kinds).toContain("undo-confirmation");
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
+    const bootHome = examples.find((example) => example.data?.kind === "boss-home");
+    expect(bootHome?.event.say).toContain("开工向导");
+    expect(bootHome?.event.screen).toContain("补齐驾驭支架");
+    expect(bootHome?.event.actions?.some((action) => action.label === "先问清楚业务目标")).toBe(true);
+    expect(bootHome?.event.actions?.some((action) => action.say === "补齐驾驭系统")).toBe(true);
+    expect(bootHome?.event.actions?.some((action) => action.kind === "command")).toBe(false);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "question-card")).toBe(true);
