@@ -91,6 +91,54 @@ describe("cli boss experience", () => {
     }
   });
 
+  it("routes confused first-time users to the boss home instead of help text", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-confused-home-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "我不会用"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("老板开箱驾驶舱");
+      expect(stdout).toContain("现在最建议做");
+      expect(stdout).toContain("直接一句话开工");
+      expect(stdout).toContain("做一个客户跟进系统，能记录客户、跟进和提醒");
+      expect(stdout).not.toContain("ccli 使用帮助");
+
+      const hardware = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "我不会用", "--json"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+      expect(hardware.stdout).toContain("\"kind\": \"boss-home\"");
+      expect(hardware.stdout).toContain("\"label\": \"直接一句话开工\"");
+      expect(hardware.stdout).toContain("\"say\": \"做一个客户跟进系统，能记录客户、跟进和提醒\"");
+      expect(hardware.stdout).not.toContain("\"kind\": \"control-help\"");
+      expect(hardware.stdout).not.toContain("\"command\"");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("keeps first-run readiness focused on seeing a product before setup", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "ccli-empty-ready-"));
