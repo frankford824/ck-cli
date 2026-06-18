@@ -151,6 +151,10 @@ describe("tools", () => {
       await git.commitAll("first", { cwd, confirmed: true });
       await writeFile(join(cwd, "note.txt"), "second\n", "utf8");
       await git.commitAll("second", { cwd, confirmed: true });
+      await mkdir(join(cwd, ".ccli", "audit"), { recursive: true });
+      await writeFile(join(cwd, ".ccli", "audit", "run.jsonl"), "{}\n", "utf8");
+      await writeFile(join(cwd, ".ccli", "progress.json"), "{}\n", "utf8");
+      await expect(git.status(cwd)).resolves.toBe("");
 
       const result = await git.revertLastCommit({ cwd, confirmed: true });
 

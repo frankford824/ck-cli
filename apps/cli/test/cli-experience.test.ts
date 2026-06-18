@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -93,4 +93,106 @@ describe("cli boss experience", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("accepts Chinese confirmation for high impact terminal actions", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const project = await mkdtemp(join(tmpdir(), "ccli-confirm-product-"));
+    try {
+      await execFileAsync("git", ["init", "-b", "main"], { cwd: project });
+      await execFileAsync("git", ["config", "user.name", "ccli-test"], { cwd: project });
+      await execFileAsync("git", ["config", "user.email", "ccli-test@example.invalid"], { cwd: project });
+      await writeFile(join(project, "note.txt"), "one\n", "utf8");
+      await execFileAsync("git", ["add", "note.txt"], { cwd: project });
+      await execFileAsync("git", ["commit", "-m", "first"], { cwd: project });
+      await writeFile(join(project, "note.txt"), "two\n", "utf8");
+      await execFileAsync("git", ["add", "note.txt"], { cwd: project });
+      await execFileAsync("git", ["commit", "-m", "second"], { cwd: project });
+
+      await mkdir(join(home, ".ccli"), { recursive: true });
+      const now = new Date().toISOString();
+      await writeFile(
+        join(home, ".ccli", "projects.json"),
+        `${JSON.stringify(
+          [
+            {
+              id: "confirm-product",
+              name: "确认测试产品",
+              idea: "测试中文确认撤回",
+              path: project,
+              createdAt: now,
+              updatedAt: now,
+              lastOpenedAt: now
+            }
+          ],
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      const result = await runCliWithInput(["--cwd", project, "undo"], {
+        home,
+        input: "确认\n"
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("输入“确认”继续");
+      expect(result.stdout).not.toContain("输入 yes");
+      expect(result.stdout).toContain("正在撤回上次成果");
+      expect(result.stdout).toContain("已撤回上次保存的成果");
+      await expect(readFile(join(project, "note.txt"), "utf8")).resolves.toBe("one\n");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(project, { recursive: true, force: true });
+    }
+  });
 });
+
+async function runCliWithInput(
+  args: string[],
+  options: { home: string; input: string; timeoutMs?: number }
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", ...args], {
+      cwd: resolve("."),
+      env: {
+        ...process.env,
+        HOME: options.home,
+        USERPROFILE: options.home
+      },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill("SIGTERM");
+      reject(new Error(`CLI timed out.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    }, options.timeoutMs ?? 30_000);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (exitCode) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise({ stdout, stderr, exitCode });
+    });
+    child.stdin.end(options.input);
+  });
+}

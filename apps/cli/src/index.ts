@@ -1208,8 +1208,8 @@ function cwdFromGlobal(): string {
 async function confirmChinese(question: string): Promise<boolean> {
   const rl = createInterface({ input, output });
   try {
-    const answer = await rl.question(`${question} 输入 yes 继续：`);
-    return answer.trim().toLowerCase() === "yes";
+    const answer = await rl.question(`${question} 输入“确认”继续，直接回车取消：`);
+    return isChineseConfirmationAnswer(answer);
   } finally {
     rl.close();
   }
@@ -2701,13 +2701,13 @@ async function askWizardYes(
   question: string
 ): Promise<boolean> {
   if (scriptedAnswers.length) {
-    return scriptedAnswers.shift()?.trim().toLowerCase() === "yes";
+    return isChineseConfirmationAnswer(scriptedAnswers.shift() ?? "");
   }
   if (!rl) {
     return false;
   }
-  const answer = await rl.question(`${question} 输入 yes 继续，直接回车只保存：`).catch(() => "");
-  return answer.trim().toLowerCase() === "yes";
+  const answer = await rl.question(`${question} 输入“确认”继续，直接回车只保存：`).catch(() => "");
+  return isChineseConfirmationAnswer(answer);
 }
 
 async function readWizardScriptedAnswers(): Promise<string[]> {
@@ -3691,8 +3691,12 @@ function isCancelRequest(request: string): boolean {
 }
 
 function isHardwareConfirmRequest(request: string): boolean {
-  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
-  return /^(?:确认|确认执行|继续|继续执行|是的|对|对的|好的|好|可以|就这个|开始吧|执行吧|没问题|yes|ok)$/.test(normalized);
+  return isChineseConfirmationAnswer(request);
+}
+
+function isChineseConfirmationAnswer(value: string): boolean {
+  const normalized = value.replace(/[，。！？!?,.\s"'“”‘’]/g, "").toLowerCase();
+  return /^(?:确认|确认继续|确认执行|继续|继续执行|是|是的|对|对的|好的|好|可以|就这个|同意|没问题|开始|开始吧|执行|执行吧|yes|y|ok)$/.test(normalized);
 }
 
 function isHelpRequest(request: string): boolean {
