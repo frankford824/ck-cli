@@ -13,6 +13,7 @@ import {
   createBossApprovalReceipt,
   createBossBrief,
   createBossHome,
+  createBossQuestionCard,
   createBossReportCard,
   createExperienceEvent,
   createHardwareResponse,
@@ -26,6 +27,7 @@ import {
   renderBossApprovalReceipt,
   renderBossBrief,
   renderBossHome,
+  renderBossQuestionCard,
   renderBossReportCard,
   renderHealthReport,
   renderNextActions,
@@ -37,6 +39,7 @@ import {
   starterIdeas,
   type BossApprovalReceipt,
   type BossBrief,
+  type BossQuestionCard,
   type ExperienceAction,
   type HardwareResponse,
   type BossReportCard,
@@ -373,6 +376,24 @@ program
         print(renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(result.workspace)}。` }));
       }
       print(renderBossBrief(result.brief));
+    });
+  });
+
+program
+  .command("questions")
+  .aliases(["ask", "clarify"])
+  .argument("[goal...]", "老板一句话业务目标")
+  .description("生成老板需求追问卡")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (goalParts: string[] | undefined, options: { json?: boolean }) => {
+    await withCli(async ({ cwd }) => {
+      const goal = goalParts?.join(" ").trim();
+      const card = await buildBossQuestionCard(cwd, goal);
+      if (options.json) {
+        print(JSON.stringify(card, null, 2));
+        return;
+      }
+      print(renderBossQuestionCard(card));
     });
   });
 
@@ -1062,6 +1083,12 @@ function nextPlanActions(plan: NextActionPlan): ExperienceAction[] {
   );
 }
 
+function questionCardActions(card: BossQuestionCard): ExperienceAction[] {
+  return card.actions.map((action) =>
+    utteranceAction(action.id, action.title, action.say, action.reason, action.id === "start-product")
+  );
+}
+
 function controlRecoveryActions(): ExperienceAction[] {
   return [
     utteranceAction("home", "回到开箱首页", "打开开箱首页"),
@@ -1297,6 +1324,22 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "undo-confirmation" }
+    ));
+  }
+
+  if (isQuestionRequest(utterance)) {
+    const card = await buildBossQuestionCard(inputValue.cwd, questionGoalFromNaturalRequest(utterance));
+    const actions = questionCardActions(card);
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: card.readyEnough ? "calm" : "asking",
+        say: card.summary,
+        screen: renderBossQuestionCard(card),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "question-card", card }
     ));
   }
 
@@ -1682,6 +1725,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isQuestionRequest(request)) {
+    print(renderBossQuestionCard(await buildBossQuestionCard(inputValue.cwd, questionGoalFromNaturalRequest(request))));
+    return true;
+  }
+
   if (isSetupGuideRequest(request)) {
     print(renderSetupGuide(await buildSetupGuide(inputValue.cwd)));
     return true;
@@ -1936,6 +1984,18 @@ async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
     nextActions: hasProduct ? reportCardActions(nextPlan.actions, Boolean(readiness?.canPreview), hasProduct) : undefined,
     auditSummary: audit.entries.length ? "最近处理过程已保存，可追溯。" : undefined,
     approvalSummary: approval ? `老板已在 ${formatShortDate(approval.approvedAt)} 记录验收通过。` : undefined
+  });
+}
+
+async function buildBossQuestionCard(cwd: string, goal?: string): Promise<BossQuestionCard> {
+  const workspace = await resolveProductWorkspace(cwd);
+  const targetCwd = workspace?.cwd ?? cwd;
+  const brief = await readBossBrief(targetCwd).catch(() => undefined);
+  const normalizedGoal = goal?.trim();
+  return createBossQuestionCard({
+    goal: normalizedGoal || brief?.goal || workspace?.project?.idea,
+    productName: brief?.productName ?? workspace?.project?.name ?? (normalizedGoal ? projectNameFromIdea(normalizedGoal) : undefined),
+    brief
   });
 }
 
@@ -2884,6 +2944,14 @@ function isReportRequest(request: string): boolean {
   );
 }
 
+function isQuestionRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:追问|问我几个问题|澄清需求|需求澄清|需求还差什么|这个需求清楚吗|需求清楚吗|还需要问什么|把需求问清楚|需求问清楚|想法还差什么|产品还差什么)/.test(normalized) ||
+    /^(?:questions|question|clarify|ask)$/.test(normalized)
+  );
+}
+
 function isBriefRequest(request: string): boolean {
   const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
   return (
@@ -2924,6 +2992,22 @@ function briefGoalFromNaturalRequest(request: string): string | undefined {
     .replace(/^(?:整理|生成|创建|写|做|梳理)(?:一份|一个|一下)?(?:老板|业务|需求|产品)?(?:简报|契约|说明|brief|spec|contract)?[：:\s]*/i, "")
     .replace(/^(?:把|将)?(?:我的)?(?:需求|想法|产品目标|业务目标)(?:整理|梳理|变成|写成)(?:成)?(?:一份|一个)?(?:老板|业务|需求|产品)?(?:简报|契约|说明)?[：:\s]*/i, "")
     .replace(/^(?:业务|需求|产品)?(?:简报|契约|说明|brief|spec|contract)[：:\s]*/i, "")
+    .trim();
+  if (!cleaned || cleaned === request.trim() || /^(?:看一下|查看|显示|打开|是什么|呢|吗|吧)?$/.test(cleaned)) {
+    return undefined;
+  }
+  return cleaned;
+}
+
+function questionGoalFromNaturalRequest(request: string): string | undefined {
+  if (!isQuestionRequest(request)) {
+    return undefined;
+  }
+  const afterColon = request.split(/[：:]/).slice(1).join(":").trim();
+  const cleaned = (afterColon || request)
+    .replace(/^(?:请|帮我|麻烦|给我)?/, "")
+    .replace(/^(?:追问我几个问题|问我几个问题|帮我澄清需求|澄清需求|需求澄清|需求还差什么|这个需求清楚吗|需求清楚吗|还需要问什么|帮我把需求问清楚|把需求问清楚|需求问清楚|想法还差什么|产品还差什么|questions|question|clarify|ask)[：:\s]*/i, "")
+    .replace(/^(?:关于|围绕)?(?:我的)?(?:需求|想法|产品|业务目标)[：:\s]*/i, "")
     .trim();
   if (!cleaned || cleaned === request.trim() || /^(?:看一下|查看|显示|打开|是什么|呢|吗|吧)?$/.test(cleaned)) {
     return undefined;
