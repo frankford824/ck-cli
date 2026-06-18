@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -62,23 +62,37 @@ program
   .description("创建新的中文开发项目")
   .option("--install", "创建后安装依赖")
   .action(async (name: string, options: { install?: boolean }) => {
-    await withCli(async ({ renderer, yes }) => {
-      const target = resolve(cwdFromGlobal(), name);
-      await mkdir(target, { recursive: true });
-      const audit = await AuditSession.create({ cwd: target, task: `创建项目 ${name}` });
+    await withCli(async ({ renderer, cwd, yes }) => {
+      const target = resolve(cwd, name);
       print(renderer.progress("inspect", "正在创建新的工作区。"));
-      await createTemplateProject(target, name, audit);
-      await new GitTool().init({ cwd: target, audit, confirmed: true });
+      await createBossProject({ name, target, install: Boolean(options.install), yes, task: `创建项目 ${name}` });
+      print(renderer.render({ type: "done", message: "项目已创建，可以进入目录后继续用中文描述需求。", severity: "success" }));
+    });
+  });
 
-      if (options.install) {
-        const confirmed = yes || (await confirmChinese("创建后需要安装依赖，会访问网络。是否继续？"));
-        if (confirmed) {
-          const { ShellTool } = await import("@ccli/tools");
-          await new ShellTool().run("pnpm install", { cwd: target, audit, kind: "install", confirmed: true });
-        }
+program
+  .command("create")
+  .alias("make")
+  .argument("<idea...>", "一句话描述想做的产品")
+  .description("按一句中文产品目标创建项目并立即开工")
+  .option("--name <name>", "项目名称")
+  .option("--install", "创建后安装依赖并启用更完整验证")
+  .option("--with-pr", "完成后尝试创建团队审查入口")
+  .action(async (ideaParts: string[], options: { name?: string; install?: boolean; withPr?: boolean }) => {
+    await withCli(async ({ renderer, cwd, expert, yes }) => {
+      const idea = ideaParts.join(" ").trim();
+      if (!idea) {
+        print(renderer.render({ type: "risk", message: "请先说清楚想做的产品目标。", severity: "warning" }));
+        return;
       }
 
-      print(renderer.render({ type: "done", message: "项目已创建，可以进入目录后继续用中文描述需求。", severity: "success" }));
+      const name = options.name?.trim() || projectNameFromIdea(idea);
+      const target = resolve(cwd, name);
+      print(renderer.render({ type: "inspect", message: "正在为这个产品目标准备新项目。" }));
+      await createBossProject({ name, target, install: Boolean(options.install), yes, task: `创建产品 ${name}` });
+      print(renderer.render({ type: "plan", message: "项目已准备好，开始按你的目标推进第一轮开发。" }));
+      await runRequirement({ cwd: target, expert, yes, requirement: idea, withPr: Boolean(options.withPr) });
+      print(renderer.render({ type: "done", message: "第一个版本已处理完成。后续可以进入这个项目继续用中文提需求。", severity: "success" }));
     });
   });
 
@@ -164,10 +178,13 @@ program
         const projectName = options.project ?? (input.isTTY ? (await rl.question("要不要顺手创建第一个项目？输入项目名，直接回车跳过：")).trim() : "");
         if (projectName) {
           const target = resolve(cwd, projectName);
-          const audit = await AuditSession.create({ cwd: target, task: `首次设置创建项目 ${projectName}` });
-          await mkdir(target, { recursive: true });
-          await createTemplateProject(target, projectName, audit);
-          await new GitTool().init({ cwd: target, audit, confirmed: true });
+          await createBossProject({
+            name: projectName,
+            target,
+            install: false,
+            yes: true,
+            task: `首次设置创建项目 ${projectName}`
+          });
           healthCwd = target;
           print(renderer.render({ type: "done", message: "第一个项目已创建。进入这个项目后，直接用中文描述想要的结果。", severity: "success" }));
         }
@@ -569,6 +586,56 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
       ])
     )
   };
+}
+
+async function createBossProject(inputValue: {
+  name: string;
+  target: string;
+  install: boolean;
+  yes: boolean;
+  task: string;
+}): Promise<void> {
+  await ensureProjectTargetReady(inputValue.target);
+  await mkdir(inputValue.target, { recursive: true });
+  const audit = await AuditSession.create({ cwd: inputValue.target, task: inputValue.task });
+  await createTemplateProject(inputValue.target, inputValue.name, audit);
+  await new GitTool().init({ cwd: inputValue.target, audit, confirmed: true });
+
+  if (inputValue.install) {
+    const confirmed = inputValue.yes || (await confirmChinese("创建后需要安装依赖，会访问网络。是否继续？"));
+    if (confirmed) {
+      const { ShellTool } = await import("@ccli/tools");
+      await new ShellTool().run("pnpm install", {
+        cwd: inputValue.target,
+        audit,
+        kind: "install",
+        confirmed: true
+      });
+    }
+  }
+}
+
+async function ensureProjectTargetReady(target: string): Promise<void> {
+  const entries = await readdir(target).catch((error: unknown) => {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  });
+
+  if (entries?.length) {
+    throw new Error("这个项目名已经被使用。请换一个名称，或在空目录中创建。");
+  }
+}
+
+function projectNameFromIdea(idea: string): string {
+  const firstClause = idea
+    .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
+    .split(/[，。；;,.!?！？\n]/)[0]
+    .replace(/^(帮我|请|我想|我要|想要|需要|做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|做|创建|开发|生成|搭建)/, "")
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff_-]+/gu, "")
+    .slice(0, 18);
+  return firstClause || `我的应用-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
 }
 
 async function resolveSetupProvider(
