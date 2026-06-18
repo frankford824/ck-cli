@@ -447,8 +447,8 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice", "action-button", "boss-home", "acceptance-guide", "delivery-confirmation", "project-catalog", "idea-catalog", "next-action"],
-    events: ["welcome", "home", "acceptance", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    output: ["speech", "screen", "choice", "action-button", "boss-home", "acceptance-guide", "revision-request", "delivery-confirmation", "project-catalog", "idea-catalog", "next-action"],
+    events: ["welcome", "home", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -489,6 +489,7 @@ export function hardwareSchema() {
       "open-project",
       "preview-current",
       "acceptance-guide",
+      "revision-request",
       "delivery-confirmation",
       "create-product",
       "health-check",

@@ -281,6 +281,23 @@ program
   });
 
 program
+  .command("revise")
+  .alias("change")
+  .argument("[feedback...]", "老板验收后的修改意见")
+  .description("按老板验收反馈继续修改当前产品")
+  .action(async (feedbackParts: string[] | undefined) => {
+    await withCli(async ({ renderer, cwd, expert, yes }) => {
+      await handleRevisionRequest({
+        cwd,
+        renderer,
+        expert,
+        yes,
+        feedback: feedbackParts?.join(" ").trim() ?? ""
+      });
+    });
+  });
+
+program
   .command("preview")
   .description("启动当前项目的本地预览")
   .option("--install", "缺少依赖时自动安装")
@@ -922,6 +939,37 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     );
   }
 
+  if (isRevisionRequest(utterance)) {
+    const feedback = revisionFeedbackFromNaturalRequest(utterance);
+    const actions = feedback
+      ? [
+          commandAction(
+            "confirm-revision",
+            "确认开始修改",
+            `ccli revise ${JSON.stringify(feedback)}`,
+            "会按这条验收反馈继续修改当前产品。",
+            true
+          ),
+          utteranceAction("acceptance", "先看验收清单", "怎么验收当前产品"),
+          utteranceAction("next", "下一步怎么办", "下一步怎么办")
+        ]
+      : [
+          utteranceAction("example", "给一个修改例子", "我想改一下：首页太乱，重点不够明显"),
+          utteranceAction("acceptance", "先看验收清单", "怎么验收当前产品")
+        ];
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: feedback ? "asking" : "warning",
+        say: feedback ? "已收到修改意见。确认后会继续修改当前产品。" : "请直接说想改哪里，例如首页太乱、按钮不明显。",
+        screen: feedback ? `修改意见：${feedback}\n确认后会继续修改当前产品。` : "请直接说想改哪里。\n例如：我想改一下：首页太乱，重点不够明显。",
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "revision-request", feedback }
+    );
+  }
+
   if (isAcceptanceRequest(utterance)) {
     const guide = await buildAcceptanceGuide(inputValue.cwd);
     const actions = [
@@ -1203,6 +1251,17 @@ async function runNaturalLanguageIntent(inputValue: {
       merge: true,
       title: "老板验收通过",
       body: "老板已确认当前效果满意，ccli 自动执行审查、交付和合并。"
+    });
+    return true;
+  }
+
+  if (isRevisionRequest(request)) {
+    await handleRevisionRequest({
+      cwd: inputValue.cwd,
+      renderer: inputValue.renderer,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      feedback: revisionFeedbackFromNaturalRequest(request)
     });
     return true;
   }
@@ -1523,6 +1582,34 @@ async function rememberUserLesson(inputValue: {
   }
 }
 
+async function handleRevisionRequest(inputValue: {
+  cwd: string;
+  renderer: ProductRenderer;
+  expert: boolean;
+  yes: boolean;
+  feedback: string;
+}): Promise<void> {
+  const feedback = inputValue.feedback.trim();
+  if (!feedback) {
+    print(
+      inputValue.renderer.render({
+        type: "info",
+        message: "请直接说想改哪里。例如：我想改一下：首页太乱，重点不够明显。"
+      })
+    );
+    return;
+  }
+
+  print(inputValue.renderer.render({ type: "info", message: "已收到验收修改意见，开始继续修改当前产品。" }));
+  await runRequirement({
+    cwd: inputValue.cwd,
+    expert: inputValue.expert,
+    yes: inputValue.yes,
+    requirement: `根据老板验收反馈继续修改当前产品：${feedback}`
+  });
+  print(renderAcceptanceGuide(await buildAcceptanceGuide(inputValue.cwd)));
+}
+
 async function runDeliveryFlow(inputValue: {
   cwd: string;
   renderer: ProductRenderer;
@@ -1766,6 +1853,21 @@ function isSatisfiedDeliveryRequest(request: string): boolean {
   return /(?:我|老板)?(?:满意|通过|可以|确认|认可).*(?:交付|发布|合并|上线|提交)/.test(request) ||
     /(?:验收|检查|效果).*(?:通过|满意|可以).*(?:交付|发布|合并|上线|提交)?/.test(request) ||
     /(?:准备|开始|执行|自动).*(?:交付|发布|合并|上线)/.test(request);
+}
+
+function isRevisionRequest(request: string): boolean {
+  return /(?:我想|我要|需要|帮我|继续|再).*(?:改一下|修改|调整|优化)/.test(request) ||
+    /(?:不满意|不通过|不好用|看不懂|太乱|不清楚)/.test(request) ||
+    /(?:把|将).*(?:改成|改得|调整成|优化成)/.test(request);
+}
+
+function revisionFeedbackFromNaturalRequest(request: string): string {
+  return request
+    .replace(/^(?:请|帮我|麻烦)?/, "")
+    .replace(/^(?:我想|我要|需要|继续|再)?(?:改一下|修改|调整|优化)(?:当前|这个|本地)?(?:产品|项目|页面|系统)?[：:\s]*/g, "")
+    .replace(/^(?:我想|我要|需要|继续|再)?(?:把|将)?(?:当前|这个|本地)?(?:产品|项目|页面|系统)?(?:改成|改得|调整成|优化成)?[：:\s]*/g, "")
+    .replace(/^(?:不满意|不通过)[：:\s]*/g, "")
+    .trim();
 }
 
 function isHomeRequest(request: string): boolean {

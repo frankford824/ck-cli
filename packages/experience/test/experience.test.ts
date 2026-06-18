@@ -142,6 +142,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("action-button");
     expect(hardwareManifest().output).toContain("boss-home");
     expect(hardwareManifest().output).toContain("acceptance-guide");
+    expect(hardwareManifest().output).toContain("revision-request");
     expect(hardwareManifest().output).toContain("delivery-confirmation");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
@@ -154,6 +155,7 @@ describe("experience", () => {
 
     expect(schema.protocol).toBe("ccli-experience-protocol");
     expect(schema.kinds).toContain("boss-home");
+    expect(schema.kinds).toContain("revision-request");
     expect(schema.kinds).toContain("delivery-confirmation");
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
