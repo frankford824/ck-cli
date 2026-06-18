@@ -122,6 +122,91 @@ export function harnessSkillFiles(): Record<string, string> {
   };
 }
 
+export function harnessRuntimeFiles(projectName = "当前项目"): Record<string, string> {
+  return {
+    ".ccli/harness/settings.json": `${JSON.stringify(
+      {
+        version: 1,
+        mode: "plain-user-autonomous",
+        principle: "便宜且可撤回的动作自动执行；昂贵、不可逆、远程、发布、密钥和生产动作必须中文确认。",
+        modelRoles: {
+          planner: "强推理模型",
+          builder: "代码能力强的模型",
+          reviewer: "与开发不同的模型或独立上下文",
+          presenter: "快速中文呈现模型"
+        },
+        permissions: {
+          autoApprove: ["读取项目说明", "搜索文件", "小范围编辑", "运行常见验证", "格式整理", "写入本地进度"],
+          confirm: ["删除大量文件", "修改密钥或部署配置", "数据库迁移", "运行远程脚本", "推送分支", "创建或合并审查入口", "发布或生产操作"],
+          deny: ["强制覆盖主线历史", "无确认发布", "读取或外传密钥", "破坏性清理命令"]
+        }
+      },
+      null,
+      2
+    )}\n`,
+    ".ccli/harness/hooks.json": `${JSON.stringify(
+      {
+        version: 1,
+        hooks: [
+          {
+            id: "dangerous-action-gate",
+            when: "before-tool",
+            description: "执行工具前检查删除、密钥、远程脚本、发布、生产和主线覆盖风险",
+            blocks: true
+          },
+          {
+            id: "quality-feedback",
+            when: "after-edit",
+            description: "改动后优先运行格式、测试、构建或预览检查，并把失败摘要反馈给开发代理",
+            blocks: false
+          },
+          {
+            id: "review-before-ship",
+            when: "after-validation",
+            description: "交付前必须经过独立审查代理，审查风险、验证结果和未覆盖项",
+            blocks: true
+          },
+          {
+            id: "session-memory-writer",
+            when: "session-end",
+            description: "任务结束或中断前写入进度、已确认事实和下一步",
+            blocks: false
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    ".ccli/harness/agents/reviewer.md": `# 独立审查代理
+
+用途：在开发代理完成后，用新的上下文检查结果，不为实现过程辩护。
+
+必须检查：
+
+- 用户目标是否真的完成。
+- 自动验证是否通过，失败时影响是什么。
+- 是否涉及删除、密钥、部署、数据库、远程脚本、推送、合并或生产数据。
+- 普通用户能不能用中文理解完成内容、风险和下一步。
+
+输出只写中文结论、风险和建议，不展示代码块、命令、路径或堆栈。
+
+项目：${projectName}
+`,
+    ".ccli/harness/agents/eval-runner.md": `# 验证执行代理
+
+用途：把改动后的验证结果变成开发代理能修复、普通用户能理解的反馈。
+
+固定流程：
+
+1. 先判断项目是否有测试、构建、格式检查或本地预览。
+2. 优先运行现有验证，不临时发明复杂流程。
+3. 验证失败时，只保留失败影响、最可能原因和下一步修复方向。
+4. 同类失败最多先自动修复一次，避免无限循环。
+5. 原始输出只进入本地审计日志。
+`
+  };
+}
+
 export function harnessScaffoldFiles(projectName = "当前项目"): Record<string, string> {
   return {
     ...harnessSkillFiles(),
@@ -134,6 +219,7 @@ export function harnessScaffoldFiles(projectName = "当前项目"): Record<strin
       null,
       2
     )}\n`,
+    ...harnessRuntimeFiles(projectName),
     "AGENTS.md": `# ccli 项目指南
 
 这个文件会被 ccli 的 Harness 稳定读取，用来约束每一次自动开发。
@@ -448,6 +534,7 @@ h1 {
       null,
       2
     )}\n`,
+    ...harnessRuntimeFiles(name),
     "AGENTS.md": `# ccli 项目指南
 
 这个文件会被 ccli 的 Harness 稳定读取，用来约束每一次自动开发。
