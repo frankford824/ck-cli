@@ -150,6 +150,7 @@ ccli home
 ```bash
 ccli "打开当前产品页面"
 ccli "怎么验收当前产品"
+ccli "我想改一下：首页太乱，重点不够明显"
 ccli "检查当前电脑是否准备好"
 ```
 
@@ -206,6 +207,12 @@ ccli "怎么验收当前产品"
 ```
 
 不满意就直接说想改哪里；满意后再说“我满意，准备交付”。
+
+也可以显式提交修改意见：
+
+```bash
+ccli revise "首页太乱，重点不够明显"
+```
 
 满意后的交付也可以显式执行：
 
@@ -459,6 +466,7 @@ ccli harness --expert
 ccli hardware "下一步怎么办" --json
 ccli hardware "我第一次用怎么开始" --json
 ccli hardware "怎么验收当前产品" --json
+ccli hardware "我想改一下：首页太乱，重点不够明显" --json
 ccli hardware "我满意，准备交付" --json
 ccli hardware "给我几个产品模板" --json
 ccli hardware "做一个库存看板，能看低库存" --json
