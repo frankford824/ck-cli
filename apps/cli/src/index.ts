@@ -78,8 +78,9 @@ program
   .option("--name <name>", "项目名称")
   .option("--install", "创建后安装依赖并启用更完整验证")
   .option("--preview", "创建后直接启动本地预览")
+  .option("--open", "启动预览后自动打开浏览器")
   .option("--with-pr", "完成后尝试创建团队审查入口")
-  .action(async (ideaParts: string[], options: { name?: string; install?: boolean; preview?: boolean; withPr?: boolean }) => {
+  .action(async (ideaParts: string[], options: { name?: string; install?: boolean; preview?: boolean; open?: boolean; withPr?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert, yes }) => {
       const idea = ideaParts.join(" ").trim();
       if (!idea) {
@@ -93,6 +94,7 @@ program
         install: Boolean(options.install),
         preview: Boolean(options.preview),
         previewAutoInstall: false,
+        previewOpenBrowser: Boolean(options.open),
         withPr: Boolean(options.withPr),
         expert,
         yes,
@@ -110,8 +112,9 @@ program
   .option("--host <host>", "预览地址", "127.0.0.1")
   .option("--port <port>", "预览端口", "5173")
   .option("--no-preview", "只生成首版，不打开预览")
+  .option("--no-open", "启动预览但不自动打开浏览器")
   .option("--with-pr", "完成后尝试创建团队审查入口")
-  .action(async (ideaParts: string[], options: { name?: string; host?: string; port?: string; preview?: boolean; withPr?: boolean }) => {
+  .action(async (ideaParts: string[], options: { name?: string; host?: string; port?: string; preview?: boolean; open?: boolean; withPr?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert, yes }) => {
       const idea = ideaParts.join(" ").trim();
       if (!idea) {
@@ -138,6 +141,7 @@ program
         install: false,
         preview: options.preview !== false,
         previewAutoInstall: true,
+        previewOpenBrowser: options.open !== false,
         previewHost: options.host ?? "127.0.0.1",
         previewPort: port,
         withPr: Boolean(options.withPr),
@@ -212,7 +216,8 @@ program
   .option("--host <host>", "预览地址", "127.0.0.1")
   .option("--port <port>", "预览端口", "5173")
   .option("--check", "只检查预览是否准备好，不启动")
-  .action(async (options: { install?: boolean; host?: string; port?: string; check?: boolean }) => {
+  .option("--no-open", "启动预览但不自动打开浏览器")
+  .action(async (options: { install?: boolean; host?: string; port?: string; check?: boolean; open?: boolean }) => {
     await withCli(async ({ renderer, cwd, yes }) => {
       const port = Number(options.port ?? "5173");
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -239,7 +244,13 @@ program
         return;
       }
 
-      await startPreviewServer({ cwd, renderer, host: options.host ?? "127.0.0.1", port });
+      await startPreviewServer({
+        cwd,
+        renderer,
+        host: options.host ?? "127.0.0.1",
+        port,
+        openBrowser: options.open !== false
+      });
     });
   });
 
@@ -745,6 +756,7 @@ async function startPreviewServer(inputValue: {
   renderer: ProductRenderer;
   host: string;
   port: number;
+  openBrowser: boolean;
 }): Promise<void> {
   const readiness = await previewReadiness(inputValue.cwd);
   if (!readiness.canPreview || !readiness.manager) {
@@ -798,7 +810,24 @@ async function startPreviewServer(inputValue: {
       }
       announced = true;
       clearTimeout(readyTimer);
-      print(inputValue.renderer.render({ type: "done", message: `本地预览已启动。打开 ${url}`, severity: "success" }));
+      print(
+        inputValue.renderer.render({
+          type: "done",
+          message: inputValue.openBrowser ? `本地预览已启动，正在打开浏览器。地址：${url}` : `本地预览已启动。打开 ${url}`,
+          severity: "success"
+        })
+      );
+      if (inputValue.openBrowser) {
+        void openUrlInBrowser(url).then((opened) => {
+          print(
+            inputValue.renderer.render({
+              type: opened ? "done" : "risk",
+              message: opened ? "浏览器已打开，可以直接查看页面。" : "没有自动打开浏览器，请手动打开上面的地址。",
+              severity: opened ? "success" : "warning"
+            })
+          );
+        });
+      }
       print("保持这个窗口打开即可继续预览。结束预览时按 Ctrl+C。");
     };
 
@@ -845,6 +874,57 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+async function openUrlInBrowser(url: string): Promise<boolean> {
+  for (const candidate of browserOpenCandidates(url)) {
+    const opened = await runBrowserOpenCommand(candidate.command, candidate.args);
+    if (opened) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function browserOpenCandidates(url: string): Array<{ command: string; args: string[] }> {
+  if (process.platform === "win32") {
+    return [{ command: "cmd.exe", args: ["/c", "start", "", url] }];
+  }
+  if (process.platform === "darwin") {
+    return [{ command: "open", args: [url] }];
+  }
+  if (process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP) {
+    return [
+      { command: "cmd.exe", args: ["/c", "start", "", url] },
+      { command: "wslview", args: [url] },
+      { command: "xdg-open", args: [url] }
+    ];
+  }
+  return [{ command: "xdg-open", args: [url] }];
+}
+
+async function runBrowserOpenCommand(command: string, args: string[]): Promise<boolean> {
+  return new Promise((resolveOpen) => {
+    const child = spawn(command, args, {
+      stdio: "ignore",
+      windowsHide: true
+    });
+    let settled = false;
+    const settle = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolveOpen(value);
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      settle(false);
+    }, 3_000);
+    child.on("error", () => settle(false));
+    child.on("close", (code) => settle(code === 0));
+  });
+}
+
 function createInstallProgressReporter(renderer: ProductRenderer): (chunk: string) => void {
   let lastReportAt = Date.now();
   return (chunk: string) => {
@@ -867,6 +947,7 @@ async function createProductFromIdea(inputValue: {
   install: boolean;
   preview: boolean;
   previewAutoInstall: boolean;
+  previewOpenBrowser: boolean;
   previewHost?: string;
   previewPort?: number;
   withPr: boolean;
@@ -903,7 +984,8 @@ async function createProductFromIdea(inputValue: {
       cwd: target,
       renderer: inputValue.renderer,
       host: inputValue.previewHost ?? "127.0.0.1",
-      port: inputValue.previewPort ?? 5173
+      port: inputValue.previewPort ?? 5173,
+      openBrowser: inputValue.previewOpenBrowser
     });
   }
   return target;
