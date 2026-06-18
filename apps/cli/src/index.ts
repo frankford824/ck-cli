@@ -909,6 +909,38 @@ function nextPlanActions(plan: NextActionPlan): ExperienceAction[] {
   );
 }
 
+function controlRecoveryActions(): ExperienceAction[] {
+  return [
+    utteranceAction("home", "回到开箱首页", "打开开箱首页"),
+    utteranceAction("next", "下一步怎么办", "下一步怎么办"),
+    utteranceAction("ideas", "给我几个产品模板", "给我几个产品模板")
+  ];
+}
+
+function controlCancelledScreen(): string {
+  return [
+    "已停止这次口令。",
+    "没有开始新的开发任务。",
+    "",
+    "你可以说：",
+    "下一步怎么办",
+    "打开开箱首页",
+    "给我几个产品模板"
+  ].join("\n");
+}
+
+function controlHelpScreen(): string {
+  return [
+    "你可以直接这样说：",
+    "下一步怎么办",
+    "给我几个产品模板",
+    "打开当前产品页面",
+    "怎么验收当前产品",
+    "我想改一下：首页重点不够明显",
+    "我满意，准备交付"
+  ].join("\n");
+}
+
 async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance: string }) {
   const utterance = inputValue.utterance.trim();
   if (!utterance) {
@@ -928,6 +960,36 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
         actions
       }),
       { kind: "welcome" }
+    );
+  }
+
+  if (isCancelRequest(utterance)) {
+    const actions = controlRecoveryActions();
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "calm",
+        say: "已停止这次口令。你可以重新说下一步怎么办，或者回到开箱首页。",
+        screen: controlCancelledScreen(),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "control-cancelled", utterance }
+    );
+  }
+
+  if (isHelpRequest(utterance)) {
+    const actions = controlRecoveryActions();
+    return createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "你只需要说想做什么。也可以说下一步怎么办、给我几个产品模板、打开当前产品页面。",
+        screen: controlHelpScreen(),
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "control-help" }
     );
   }
 
@@ -1205,6 +1267,18 @@ async function runNaturalLanguageIntent(inputValue: {
   renderer: ProductRenderer;
 }): Promise<boolean> {
   const request = inputValue.request.trim();
+  if (isCancelRequest(request)) {
+    print(inputValue.renderer.render({ type: "info", message: "已停止这次口令，没有开始新的开发任务。" }));
+    print(controlCancelledScreen());
+    return true;
+  }
+
+  if (isHelpRequest(request)) {
+    print(inputValue.renderer.render({ type: "info", message: "你只需要说清楚想要的结果，ccli 会把开发、验证和交付接住。" }));
+    print(renderBossHome(await buildBossHome(inputValue.cwd)));
+    return true;
+  }
+
   if (isProjectListRequest(request)) {
     await renderKnownProjects({ renderer: inputValue.renderer, expert: inputValue.expert, json: false });
     return true;
@@ -1884,6 +1958,20 @@ function isCurrentPreviewRequest(request: string): boolean {
 function isDoctorRequest(request: string): boolean {
   return /(?:检查|诊断|体检|看看).*(?:电脑|环境|配置|准备好|能不能用|能否使用|是否可用)/.test(request) ||
     /(?:电脑|环境|配置).*(?:检查|诊断|体检|准备好|能不能用|能否使用|是否可用)/.test(request);
+}
+
+function isCancelRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "");
+  return (
+    /^(?:取消|停一下|暂停|停止|算了|先不做了|不做了|别做了|不用了|退出|结束|返回)$/.test(normalized) ||
+    /^(?:先)?(?:取消|停止|暂停)(?:这次|当前|刚才)?(?:任务|操作|口令|命令|动作|交付|合并|发布|修改|生成|开发)?$/.test(normalized) ||
+    /^(?:别|不要)(?:继续|执行|开始|开发|生成|交付|合并|发布|修改)$/.test(normalized)
+  );
+}
+
+function isHelpRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return /^(?:帮助|help|使用说明|新手帮助|我不会用|教我用|怎么操作|能做什么|可以做什么)$/.test(normalized);
 }
 
 function isAcceptanceRequest(request: string): boolean {
