@@ -97,6 +97,21 @@ export interface AcceptanceGuide {
   ask: string;
 }
 
+export interface BossBrief {
+  title: string;
+  summary: string;
+  productName?: string;
+  goal: string;
+  audience: string;
+  problem: string;
+  mustHaves: string[];
+  acceptance: string[];
+  boundaries: string[];
+  actions: NextAction[];
+  updatedAt?: string;
+  ask: string;
+}
+
 export type HealthStatus = "ready" | "action-needed" | "optional";
 
 export interface HealthCheckItem {
@@ -178,6 +193,7 @@ export function welcomeCard(): WelcomeCard {
       "继续上次任务：ccli resume",
       "首次设置：ccli setup",
       "安全试用：ccli try",
+      "整理业务简报：ccli brief \"做一个客户管理系统\"",
       "不知道下一步：ccli next",
       "最快体验：ccli go \"做一个客户管理系统\"",
       "不知道做什么：ccli ideas",
@@ -194,6 +210,7 @@ export function welcomeCard(): WelcomeCard {
     ],
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
+      "整理业务简报：做一个客户管理系统，能记录跟进和提醒",
       "下一步怎么办",
       "试用一下",
       "给我几个产品模板",
@@ -454,6 +471,107 @@ export function renderAcceptanceGuide(guide: AcceptanceGuide): string {
   lines.push(`想继续改直接说：${guide.changeSay}后面加你的要求`);
   lines.push(`要交付直接说：${guide.shipSay}`);
   lines.push(guide.ask);
+  return lines.join("\n").trim();
+}
+
+export function createBossBrief(input: {
+  goal: string;
+  productName?: string;
+  audience?: string;
+  updatedAt?: string;
+}): BossBrief {
+  const goal = cleanText(input.goal) ?? "先做一个能让老板看懂、能继续修改的业务产品。";
+  const matched = starterIdeas().find((idea) => goal.includes(idea.title) || goal.includes(idea.id) || keywordMatch(goal, idea));
+  const productName = cleanText(input.productName) ?? matched?.title;
+  const audience = cleanText(input.audience) ?? matched?.bestFor ?? audienceFromGoal(goal);
+  const outcome = matched?.outcome ?? "把老板口头需求变成一个可以打开、可以验收、可以继续改的首版产品。";
+  const firstCheck = matched?.firstCheck ?? firstCheckFromGoal(goal) ?? "打开后先看首屏是否能一眼说明产品要解决什么问题。";
+
+  return {
+    title: "老板业务简报",
+    summary: productName ? `已把「${productName}」整理成可执行的业务简报。` : "已把这句话整理成可执行的业务简报。",
+    productName,
+    goal,
+    audience,
+    problem: outcome,
+    mustHaves: uniqueStrings([
+      "首屏一眼看懂这个产品解决什么业务问题。",
+      "把目标里提到的核心信息、状态和下一步动作放到显眼位置。",
+      matched ? `覆盖核心结果：${matched.outcome}` : undefined,
+      goal.includes("提醒") ? "需要有清楚的待办、提醒或风险提示。" : undefined,
+      goal.includes("搜索") || goal.includes("查询") ? "需要能快速找到关键记录。" : undefined,
+      goal.includes("导出") ? "需要让用户知道哪些内容可以交付或带走。" : undefined,
+      goal.includes("手机") || goal.includes("移动") ? "小屏幕也要清楚、好点击。" : undefined
+    ]).slice(0, 5),
+    acceptance: uniqueStrings([
+      firstCheck,
+      "老板不看代码，也能说清楚这个产品现在能做什么。",
+      "主要按钮、状态和下一步动作不用解释也能看懂。",
+      "如果不满意，能直接指出要改的页面、内容或流程。",
+      "满意后可以进入审查、保存和交付。"
+    ]).slice(0, 5),
+    boundaries: [
+      "首版先做可看、可验收、可继续修改的业务流程。",
+      "暂不默认连接真实支付、真实生产数据或正式发布环境。",
+      "涉及删除、发布、合并、生产数据和密钥的动作仍需要确认。"
+    ],
+    actions: [
+      {
+        id: "start-product",
+        title: "开始生成首版",
+        reason: "简报已经能指导第一轮开发。",
+        say: goal
+      },
+      {
+        id: "accept-current",
+        title: "按清单验收",
+        reason: "开发后用同一份标准判断是否满意。",
+        say: "怎么验收当前产品"
+      },
+      {
+        id: "revise-current",
+        title: "继续补充要求",
+        reason: "如果简报还不准，直接说要改哪里。",
+        say: "我想改一下：目标用户和验收标准再写清楚"
+      }
+    ],
+    updatedAt: input.updatedAt,
+    ask: "如果简报准确，就直接说目标开始做；如果不准确，就直接说想补充什么。"
+  };
+}
+
+export function renderBossBrief(brief: BossBrief): string {
+  const lines = [brief.title, "", brief.summary];
+  if (brief.productName) {
+    lines.push(`产品：${brief.productName}`);
+  }
+  lines.push(`目标：${brief.goal}`);
+  lines.push(`使用者：${brief.audience}`);
+  lines.push(`要解决的问题：${brief.problem}`);
+
+  lines.push("", "首版必须做到：");
+  for (const [index, item] of brief.mustHaves.entries()) {
+    lines.push(`${index + 1}. ${item}`);
+  }
+
+  lines.push("", "验收标准：");
+  for (const [index, item] of brief.acceptance.entries()) {
+    lines.push(`${index + 1}. ${item}`);
+  }
+
+  lines.push("", "先不做：");
+  for (const [index, item] of brief.boundaries.entries()) {
+    lines.push(`${index + 1}. ${item}`);
+  }
+
+  lines.push("", "可以直接说：");
+  for (const [index, action] of brief.actions.entries()) {
+    lines.push(`${index + 1}. ${action.title}`);
+    lines.push(`原因：${action.reason}`);
+    lines.push(`直接说：${action.say}`);
+  }
+
+  lines.push("", brief.ask);
   return lines.join("\n").trim();
 }
 
@@ -788,6 +906,7 @@ export function hardwareManifest() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "brief-card",
       "report-card",
       "acceptance-guide",
       "revision-request",
@@ -798,7 +917,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "resume", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "brief", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -839,6 +958,7 @@ export function hardwareSchema() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "brief-card",
       "report-card",
       "next-action",
       "idea-catalog",
@@ -947,6 +1067,32 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "resume-guide" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "已把这句话整理成可执行的业务简报。",
+        screen: "老板业务简报\n\n目标：做一个客户管理系统，能记录跟进和提醒\n使用者：销售、门店、服务公司\n要解决的问题：记录客户、跟进提醒、成交状态和老板优先事项。\n\n验收标准：\n1. 打开后先看是否能分清高意向、待跟进和已成交客户。\n2. 老板不看代码，也能说清楚这个产品现在能做什么。",
+        choices: ["开始生成首版", "补充要求", "按清单验收"],
+        actions: [
+          {
+            id: "start-product",
+            label: "开始生成首版",
+            kind: "utterance",
+            say: "做一个客户管理系统，能记录跟进和提醒",
+            requiresConfirmation: true
+          },
+          {
+            id: "revise-brief",
+            label: "补充要求",
+            kind: "utterance",
+            say: "我想改一下：目标用户和验收标准再写清楚",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "brief-card" }
     ),
     createHardwareResponse(
       createExperienceEvent({
@@ -1224,6 +1370,40 @@ function firstCheckFromGoal(goal?: string): string | undefined {
     return undefined;
   }
   return starterIdeas().find((idea) => goal.includes(idea.say) || idea.say.includes(goal) || keywordMatch(goal, idea))?.firstCheck;
+}
+
+function audienceFromGoal(goal: string): string {
+  if (/客户|销售|crm/i.test(goal)) {
+    return "销售、门店、服务公司";
+  }
+  if (/预约|排班|门店|诊所|美业/.test(goal)) {
+    return "门店、服务人员和预约客户";
+  }
+  if (/库存|仓库|补货|出库/.test(goal)) {
+    return "仓库、零售、电商和运营人员";
+  }
+  if (/订单|发货|物流|售后/.test(goal)) {
+    return "电商、批发和售后团队";
+  }
+  if (/财务|收支|回款|现金流/.test(goal)) {
+    return "老板、财务和项目负责人";
+  }
+  if (/内容|发布|素材|审核/.test(goal)) {
+    return "品牌、市场和内容团队";
+  }
+  return "老板、员工和日常使用者";
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  return values.filter((value): value is string => {
+    const cleaned = cleanText(value);
+    if (!cleaned || seen.has(cleaned)) {
+      return false;
+    }
+    seen.add(cleaned);
+    return true;
+  });
 }
 
 function keywordMatch(goal: string, idea: StarterIdea): boolean {

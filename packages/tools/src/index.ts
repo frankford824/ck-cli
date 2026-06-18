@@ -142,6 +142,16 @@ export class GitTool {
     );
   }
 
+  async initStandalone(context: ToolContext): Promise<void> {
+    if (existsSync(join(context.cwd, ".git"))) {
+      return;
+    }
+    assertCommandOk(
+      await this.shell.run("git init -b main", { ...context, kind: "git-init", confirmed: true }),
+      "初始化独立工作区失败"
+    );
+  }
+
   async ensureMainBranch(context: ToolContext): Promise<void> {
     if (!(await this.isRepo(context.cwd))) {
       await this.init(context);

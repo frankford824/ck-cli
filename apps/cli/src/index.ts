@@ -10,6 +10,7 @@ import { Command } from "commander";
 import { TaskOrchestrator } from "@ccli/agent-core";
 import {
   createAcceptanceGuide,
+  createBossBrief,
   createBossHome,
   createBossReportCard,
   createExperienceEvent,
@@ -21,6 +22,7 @@ import {
   hardwareSchema,
   healthSummary,
   renderAcceptanceGuide,
+  renderBossBrief,
   renderBossHome,
   renderBossReportCard,
   renderHealthReport,
@@ -31,6 +33,7 @@ import {
   renderWelcome,
   speechText,
   starterIdeas,
+  type BossBrief,
   type ExperienceAction,
   type HardwareResponse,
   type BossReportCard,
@@ -340,6 +343,33 @@ program
         return;
       }
       print(renderBossReportCard(card));
+    });
+  });
+
+program
+  .command("brief")
+  .aliases(["contract", "spec"])
+  .argument("[goal...]", "老板一句话业务目标")
+  .description("整理或查看老板业务简报")
+  .option("--json", "输出给硬件或自动化使用的结构化结果")
+  .action(async (goalParts: string[] | undefined, options: { json?: boolean }) => {
+    await withCli(async ({ cwd, renderer }) => {
+      const goal = goalParts?.join(" ").trim();
+      const result = await buildOrSaveBossBrief(cwd, goal);
+      if (!result.brief) {
+        print(renderer.render({ type: "info", message: "还没有业务简报。可以直接说：整理业务简报：后面加你的产品目标。" }));
+        return;
+      }
+      if (options.json) {
+        print(JSON.stringify(result.brief, null, 2));
+        return;
+      }
+      if (result.saved) {
+        print(renderer.render({ type: "done", message: "业务简报已保存，后续开发和验收会围绕它推进。", severity: "success" }));
+      } else if (result.usedLatest && result.workspace) {
+        print(renderer.render({ type: "info", message: `已接上最近产品：${productWorkspaceName(result.workspace)}。` }));
+      }
+      print(renderBossBrief(result.brief));
     });
   });
 
@@ -1277,6 +1307,31 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
     ));
   }
 
+  if (isBriefRequest(utterance)) {
+    const result = await buildOrSaveBossBrief(inputValue.cwd, briefGoalFromNaturalRequest(utterance));
+    const actions = result.brief
+      ? [
+          utteranceAction("start-product", "开始生成首版", result.brief.goal, "按这份业务简报生成首版产品。", true),
+          utteranceAction("revise-brief", "补充要求", "我想改一下：目标用户和验收标准再写清楚"),
+          utteranceAction("acceptance", "按清单验收", "怎么验收当前产品")
+        ]
+      : [
+          utteranceAction("example-brief", "整理一个示例简报", "整理业务简报：做一个客户管理系统，能记录跟进和提醒"),
+          utteranceAction("ideas", "先看产品模板", "给我几个产品模板")
+        ];
+    return finalize(createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: result.brief ? "asking" : "warning",
+        say: result.brief ? result.brief.summary : "还没有业务简报。请说整理业务简报，后面加你的产品目标。",
+        screen: result.brief ? renderBossBrief(result.brief) : "还没有业务简报。\n可以说：整理业务简报：做一个客户管理系统，能记录跟进和提醒",
+        choices: choicesFromActions(actions),
+        actions
+      }),
+      { kind: "brief-card", brief: result.brief, saved: result.saved }
+    ));
+  }
+
   if (isSatisfiedDeliveryRequest(utterance)) {
     const actions = [
       commandAction("confirm-delivery", "确认交付并合并", "ccli finish --yes", "会发送成果、进行独立审查，并在审查通过后合并。", true),
@@ -1585,6 +1640,19 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isBriefRequest(request)) {
+    const result = await buildOrSaveBossBrief(inputValue.cwd, briefGoalFromNaturalRequest(request));
+    if (!result.brief) {
+      print(inputValue.renderer.render({ type: "info", message: "还没有业务简报。可以直接说：整理业务简报：后面加你的产品目标。" }));
+      return true;
+    }
+    if (result.saved) {
+      print(inputValue.renderer.render({ type: "done", message: "业务简报已保存，后续开发和验收会围绕它推进。", severity: "success" }));
+    }
+    print(renderBossBrief(result.brief));
+    return true;
+  }
+
   if (isTryDemoRequest(request)) {
     await runTryDemo({
       renderer: inputValue.renderer,
@@ -1782,26 +1850,93 @@ async function buildBossHome(cwd: string) {
 async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
   const [projects, workspace] = await Promise.all([readProjectRegistry(), resolveProductWorkspace(cwd)]);
   const targetCwd = workspace?.cwd ?? cwd;
-  const [progress, state, readiness, audit, nextPlan] = await Promise.all([
+  const [progress, state, readiness, audit, nextPlan, brief] = await Promise.all([
     readHarnessProgress(targetCwd).catch(() => undefined),
     readState(targetCwd).catch(() => undefined),
     previewReadiness(targetCwd).catch(() => undefined),
     readLatestAuditSummary(targetCwd).catch(() => ({ entries: [] })),
-    buildNextActionPlan(targetCwd).catch(() => ({ summary: "先看当前结果，再决定下一步。", actions: [] }))
+    buildNextActionPlan(targetCwd).catch(() => ({ summary: "先看当前结果，再决定下一步。", actions: [] })),
+    readBossBrief(targetCwd).catch(() => undefined)
   ]);
   const current = workspace?.project ?? projectForCwd(projects, targetCwd);
   const latest = workspace?.usedLatest ? workspace.project : undefined;
   const project = current ?? latest ?? projects[0];
   const hasProduct = Boolean(current || latest || readiness?.canPreview || progress || state);
   return createBossReportCard({
-    productName: current?.name ?? latest?.name ?? (readiness?.canPreview ? productWorkspaceName({ cwd: targetCwd, project, usedLatest: false }) : project?.name),
-    goal: current?.idea ?? latest?.idea ?? project?.idea,
+    productName: brief?.productName ?? current?.name ?? latest?.name ?? (readiness?.canPreview ? productWorkspaceName({ cwd: targetCwd, project, usedLatest: false }) : project?.name),
+    goal: brief?.goal ?? current?.idea ?? latest?.idea ?? project?.idea,
     progress,
     state,
     canPreview: Boolean(readiness?.canPreview),
     nextActions: hasProduct ? reportCardActions(nextPlan.actions, Boolean(readiness?.canPreview), hasProduct) : undefined,
     auditSummary: audit.entries.length ? "最近处理过程已保存，可追溯。" : undefined
   });
+}
+
+interface BossBriefResult {
+  brief?: BossBrief;
+  saved: boolean;
+  workspace?: ProductWorkspace;
+  usedLatest: boolean;
+  targetCwd: string;
+}
+
+async function buildOrSaveBossBrief(cwd: string, goal?: string): Promise<BossBriefResult> {
+  const workspace = await resolveProductWorkspace(cwd);
+  const targetCwd = workspace?.cwd ?? cwd;
+  const normalizedGoal = goal?.trim();
+  if (normalizedGoal) {
+    const brief = createBossBrief({
+      goal: normalizedGoal,
+      productName: workspace?.project?.name ?? projectNameFromIdea(normalizedGoal),
+      updatedAt: new Date().toISOString()
+    });
+    await writeBossBrief(targetCwd, brief);
+    return { brief, saved: true, workspace, usedLatest: Boolean(workspace?.usedLatest), targetCwd };
+  }
+
+  const existing = await readBossBrief(targetCwd);
+  if (existing) {
+    return { brief: existing, saved: false, workspace, usedLatest: Boolean(workspace?.usedLatest), targetCwd };
+  }
+
+  if (workspace?.project?.idea) {
+    return {
+      brief: createBossBrief({
+        goal: workspace.project.idea,
+        productName: workspace.project.name,
+        updatedAt: workspace.project.updatedAt
+      }),
+      saved: false,
+      workspace,
+      usedLatest: Boolean(workspace.usedLatest),
+      targetCwd
+    };
+  }
+
+  return { saved: false, workspace, usedLatest: Boolean(workspace?.usedLatest), targetCwd };
+}
+
+async function readBossBrief(cwd: string): Promise<BossBrief | undefined> {
+  try {
+    return JSON.parse(await readFile(bossBriefPath(cwd), "utf8")) as BossBrief;
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function writeBossBrief(cwd: string, brief: BossBrief): Promise<void> {
+  const path = bossBriefPath(cwd);
+  await mkdir(resolve(path, ".."), { recursive: true });
+  await writeFile(path, `${JSON.stringify(brief, null, 2)}\n`, "utf8");
+  await chmod(path, 0o600).catch(() => undefined);
+}
+
+function bossBriefPath(cwd: string): string {
+  return resolve(cwd, ".ccli", "brief.json");
 }
 
 function reportCardActions(baseActions: NextAction[], canPreview: boolean, hasProduct: boolean): NextAction[] {
@@ -1913,12 +2048,16 @@ async function runSetupWizard(inputValue: {
 async function buildAcceptanceGuide(cwd: string) {
   const [projects, workspace] = await Promise.all([readProjectRegistry(), resolveProductWorkspace(cwd)]);
   const targetCwd = workspace?.cwd ?? cwd;
-  const readiness = await previewReadiness(targetCwd).catch(() => undefined);
+  const [readiness, brief] = await Promise.all([
+    previewReadiness(targetCwd).catch(() => undefined),
+    readBossBrief(targetCwd).catch(() => undefined)
+  ]);
   const current = workspace?.project ?? projectForCwd(projects, targetCwd);
   const project = current ?? projects[0];
   return createAcceptanceGuide({
-    productName: current?.name ?? (readiness?.canPreview ? "当前产品" : project?.name),
-    goal: current?.idea ?? project?.idea,
+    productName: brief?.productName ?? current?.name ?? (readiness?.canPreview ? "当前产品" : project?.name),
+    goal: brief?.goal ?? current?.idea ?? project?.idea,
+    firstCheck: brief?.acceptance[0],
     canPreview: readiness?.canPreview
   });
 }
@@ -2610,6 +2749,30 @@ function isReportRequest(request: string): boolean {
   );
 }
 
+function isBriefRequest(request: string): boolean {
+  const normalized = request.replace(/[，。！？!?,.\s]/g, "").toLowerCase();
+  return (
+    /(?:业务简报|需求简报|产品简报|老板简报|需求契约|业务契约|产品契约|整理需求|整理想法|梳理需求|梳理想法|验收标准是什么|首版要做什么)/.test(normalized) ||
+    /^(?:brief|spec|contract)$/.test(normalized)
+  );
+}
+
+function briefGoalFromNaturalRequest(request: string): string | undefined {
+  if (!isBriefRequest(request)) {
+    return undefined;
+  }
+  const cleaned = request
+    .replace(/^(?:请|帮我|麻烦|给我)?/, "")
+    .replace(/^(?:整理|生成|创建|写|做|梳理)(?:一份|一个|一下)?(?:老板|业务|需求|产品)?(?:简报|契约|说明|brief|spec|contract)?[：:\s]*/i, "")
+    .replace(/^(?:把|将)?(?:我的)?(?:需求|想法|产品目标|业务目标)(?:整理|梳理|变成|写成)(?:成)?(?:一份|一个)?(?:老板|业务|需求|产品)?(?:简报|契约|说明)?[：:\s]*/i, "")
+    .replace(/^(?:业务|需求|产品)?(?:简报|契约|说明|brief|spec|contract)[：:\s]*/i, "")
+    .trim();
+  if (!cleaned || cleaned === request.trim() || /^(?:看一下|查看|显示|打开|是什么|呢|吗|吧)?$/.test(cleaned)) {
+    return undefined;
+  }
+  return cleaned;
+}
+
 function isAcceptanceRequest(request: string): boolean {
   return /(?:怎么|如何|怎样).*(?:验收|确认效果|看效果|判断好坏|交付前)/.test(request) ||
     /(?:验收|验收清单|确认效果|检查效果|通过标准|交付前).*(?:产品|项目|页面|系统|清单|看什么|怎么做)?/.test(request) ||
@@ -3043,6 +3206,14 @@ async function createProductFromIdea(inputValue: {
     yes: inputValue.yes,
     task: `创建产品 ${name}`
   });
+  await writeBossBrief(
+    target,
+    createBossBrief({
+      goal: inputValue.idea,
+      productName: name,
+      updatedAt: new Date().toISOString()
+    })
+  );
   print(inputValue.renderer.render({ type: "plan", message: "项目已准备好，开始按你的目标推进第一轮开发。" }));
   await runRequirement({
     cwd: target,
@@ -3231,7 +3402,7 @@ async function createBossProject(inputValue: {
   await mkdir(inputValue.target, { recursive: true });
   const audit = await AuditSession.create({ cwd: inputValue.target, task: inputValue.task });
   await createTemplateProject(inputValue.target, inputValue.name, audit);
-  await new GitTool().init({ cwd: inputValue.target, audit, confirmed: true });
+  await new GitTool().initStandalone({ cwd: inputValue.target, audit, confirmed: true });
 
   if (inputValue.install) {
     const confirmed = inputValue.yes || (await confirmChinese("创建后需要安装依赖，会访问网络。是否继续？"));

@@ -19,6 +19,7 @@
 - 没有模型授权时，也会先生成可运行的中文首版业务页面，而不是只留下技术草稿。
 - 离线首版会按客户、预约、库存、订单、财务、内容等常见场景生成不同业务工作台。
 - `ccli home` 提供老板开箱驾驶舱：当前状态、最建议动作、可选动作和常见模板放在一个中文首页。
+- `ccli brief` 提供老板业务简报：把一句话想法整理成目标、使用者、首版范围和验收标准。
 - `ccli report` 提供老板交付卡：把当前产品、目标、进展依据和下一步说法压成一页中文汇报。
 - `ccli try` 提供安全试用入口：不用模型授权、不改当前目录，直接生成一个演示产品并可打开页面。
 - `ccli go` 提供一键开箱路径：一句话创建产品、生成首版、准备运行内容并打开本地预览。
@@ -47,6 +48,7 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 ```bash
 ccli
 ccli home
+ccli brief "做一个客户管理系统，能记录跟进和提醒"
 ccli report
 ccli try --no-preview
 ccli ready
@@ -106,6 +108,7 @@ pnpm dev --help
 ```bash
 ccli
 ccli home
+ccli brief "做一个客户管理系统"
 ccli report
 ccli ready
 ccli setup
@@ -128,6 +131,7 @@ ccli do "添加一个登录页面"
 ccli preview --install
 ccli status
 ccli resume
+ccli brief
 ccli report
 ccli undo
 ccli review
@@ -146,6 +150,7 @@ ccli harness --expert
 ccli "取消"
 ccli memory search "登录页面" --expert
 ccli hardware --expert
+ccli hardware "整理业务简报：做一个客户管理系统，能记录跟进和提醒" --json
 ccli hardware "给我一个进度汇报" --json
 ccli hardware "下一步怎么办" --json
 ```
@@ -159,6 +164,15 @@ ccli home
 ```
 
 它会把当前状态、最建议动作、可选动作和常见开工模板放在同一个中文首页。
+
+如果想先把口头想法变成外包合同一样清楚的目标，可以输入：
+
+```bash
+ccli brief "做一个客户管理系统，能记录跟进和提醒"
+ccli "整理业务简报：做一个客户管理系统，能记录跟进和提醒"
+```
+
+它会生成产品目标、使用者、要解决的问题、首版必须做到、验收标准和暂不做的边界。后续 `ccli report` 和 `ccli accept` 会优先围绕这份简报说明。
 
 想给自己或团队看当前做到哪，可以输入：
 
@@ -511,6 +525,7 @@ ccli harness --expert
 - 结构化按钮动作，包含说法、命令、说明和是否需要确认
 - 产品清单
 - 老板开箱驾驶舱，可用 `ccli home --json` 读取
+- 老板业务简报，可用 `ccli brief --json` 读取
 - 老板交付卡，可用 `ccli report --json` 读取
 - 开箱准备向导，可用 `ccli ready --json` 读取
 - 任务恢复向导，可用 `ccli resume --json` 读取
@@ -529,6 +544,7 @@ ccli harness --expert
 
 ```bash
 ccli hardware "下一步怎么办" --json
+ccli hardware "整理业务简报：做一个客户管理系统，能记录跟进和提醒" --json
 ccli hardware "给我一个进度汇报" --json
 ccli hardware "开箱准备" --json
 ccli hardware "继续上次任务" --json
