@@ -116,8 +116,8 @@ export class BuilderAgent {
       };
     }
 
-    const fileName = "PRODUCT_REQUEST.md";
-    const content = [
+    const requestFile = "PRODUCT_REQUEST.md";
+    const requestContent = [
       "# 产品需求记录",
       "",
       `项目：${basename(input.cwd)}`,
@@ -126,13 +126,40 @@ export class BuilderAgent {
       "计划：",
       ...input.plan.steps.map((step, index) => `${index + 1}. ${step}`),
       "",
-      "说明：当前还没有可用的开发模型配置，因此 ccli 先保存了需求草稿。配置模型后可以继续自动开发。"
+      "说明：当前还没有可用的开发模型配置，因此 ccli 已先生成一个可运行的中文首版页面，并保存了需求草稿。配置模型后可以继续自动开发。"
     ].join("\n");
 
-    await this.fileTool.write(fileName, `${content}\n`, { cwd: input.cwd, audit: input.audit, confirmed: true });
+    await this.fileTool.write(requestFile, `${requestContent}\n`, { cwd: input.cwd, audit: input.audit, confirmed: true });
+
+    const changedFiles = [requestFile];
+    const hasAppTemplate = await this.fileTool.read("src/App.tsx", { cwd: input.cwd, audit: input.audit }).then(
+      () => true,
+      () => false
+    );
+    if (hasAppTemplate) {
+      const starter = starterAppFor(input.requirement, input.plan);
+      await this.fileTool.write("src/App.tsx", starter.appTsx, {
+        cwd: input.cwd,
+        audit: input.audit,
+        confirmed: true
+      });
+      await this.fileTool.write("src/styles.css", starter.stylesCss, {
+        cwd: input.cwd,
+        audit: input.audit,
+        confirmed: true
+      });
+      changedFiles.push("src/App.tsx", "src/styles.css");
+      await input.audit.record("builder.fallback.starter", "已生成无模型首版业务页面", {
+        title: starter.title,
+        changedFiles
+      });
+    }
+
     return {
-      summary: "还没有配置可用开发模型，已先保存产品需求草稿，方便后续继续推进。",
-      changedFiles: [fileName],
+      summary: hasAppTemplate
+        ? "还没有配置可用开发模型，已先生成可运行的中文首版页面，并保存需求草稿。"
+        : "还没有配置可用开发模型，已先保存产品需求草稿，方便后续继续推进。",
+      changedFiles,
       usedModel: false
     };
   }
@@ -563,6 +590,313 @@ function prBody(requirement: string, build: BuildResult, review: ReviewResult): 
     "## 风险",
     review.risks.length ? review.risks.map((risk) => `- ${risk}`).join("\n") : "未发现明显风险。"
   ].join("\n");
+}
+
+interface StarterApp {
+  title: string;
+  appTsx: string;
+  stylesCss: string;
+}
+
+function starterAppFor(requirement: string, plan: ProductPlan): StarterApp {
+  const domain = inferStarterDomain(requirement);
+  const title = titleForRequirement(requirement);
+  const heroAction = domain === "booking" ? "查看今日预约" : domain === "crm" ? "查看客户跟进" : "查看重点任务";
+  const metricLabels =
+    domain === "booking"
+      ? ["今日预约", "待确认", "空闲时段"]
+      : domain === "crm"
+        ? ["活跃客户", "待跟进", "本周成交"]
+        : ["进行中事项", "待确认", "本周完成"];
+  const workflow =
+    domain === "booking"
+      ? ["客户提交预约", "老板确认时间", "系统提醒到店"]
+      : domain === "crm"
+        ? ["录入客户", "安排跟进", "推进成交"]
+        : ["收集需求", "安排负责人", "检查结果"];
+  const records =
+    domain === "booking"
+      ? [
+          ["张女士", "明天 10:00", "待确认"],
+          ["李先生", "周五 15:30", "已确认"],
+          ["王女士", "今天 18:00", "需改期"]
+        ]
+      : domain === "crm"
+        ? [
+            ["恒星贸易", "报价后跟进", "高意向"],
+            ["青木门店", "下周演示", "推进中"],
+            ["瑞启科技", "合同确认", "待回复"]
+          ]
+        : [
+            ["首页体验优化", "今天确认方向", "进行中"],
+            ["运营数据看板", "补充指标", "待确认"],
+            ["交付验收", "准备说明", "可审查"]
+          ];
+  const planSteps = plan.steps.slice(0, 4);
+
+  return {
+    title,
+    appTsx: `const metrics = ${JSON.stringify(metricLabels.map((label, index) => ({ label, value: ["24", "8", "5"][index] })), null, 2)};
+const workflow = ${JSON.stringify(workflow, null, 2)};
+const records = ${JSON.stringify(records.map(([name, next, status]) => ({ name, next, status })), null, 2)};
+const plan = ${JSON.stringify(planSteps, null, 2)};
+
+export function App() {
+  return (
+    <main className="page">
+      <section className="hero">
+        <p className="eyebrow">首版业务工作台</p>
+        <h1>${escapeTsxText(title)}</h1>
+        <p className="summary">${escapeTsxText(plan.outcome)}</p>
+        <div className="actions">
+          <button>${escapeTsxText(heroAction)}</button>
+          <span>已按你的中文目标生成，可继续让 ccli 细化。</span>
+        </div>
+      </section>
+
+      <section className="metrics" aria-label="关键指标">
+        {metrics.map((metric) => (
+          <article className="metric" key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+          </article>
+        ))}
+      </section>
+
+      <section className="workspace">
+        <div className="panel">
+          <h2>当前流程</h2>
+          <ol>
+            {workflow.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="panel">
+          <h2>重点记录</h2>
+          <div className="records">
+            {records.map((record) => (
+              <article className="record" key={record.name}>
+                <strong>{record.name}</strong>
+                <span>{record.next}</span>
+                <em>{record.status}</em>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>下一步</h2>
+          <ul>
+            {plan.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    </main>
+  );
+}
+`,
+    stylesCss: `:root {
+  color: #17212b;
+  background: #f5f7fa;
+  font-family:
+    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  background: #0f7a5f;
+  color: #ffffff;
+  padding: 12px 18px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.page {
+  min-height: 100vh;
+  display: grid;
+  gap: 24px;
+  padding: 48px;
+  box-sizing: border-box;
+}
+
+.hero {
+  max-width: 920px;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #0f7a5f;
+  font-weight: 800;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 46px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+.summary {
+  margin-top: 16px;
+  max-width: 780px;
+  color: #4b5b68;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+.actions {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  color: #647282;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.metric,
+.panel {
+  border: 1px solid #d9e2ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.metric {
+  min-height: 104px;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  padding: 18px;
+}
+
+.metric span {
+  color: #607080;
+}
+
+.metric strong {
+  font-size: 34px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 0.9fr 1.2fr 1fr;
+  gap: 14px;
+}
+
+.panel {
+  padding: 20px;
+}
+
+ol,
+ul {
+  margin: 16px 0 0;
+  padding-left: 22px;
+  color: #465461;
+  line-height: 1.9;
+}
+
+.records {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.record {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e5ebf0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.record span {
+  color: #5c6c7a;
+}
+
+.record em {
+  border-radius: 999px;
+  background: #eef7f3;
+  color: #0f7a5f;
+  padding: 6px 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@media (max-width: 820px) {
+  .page {
+    padding: 28px;
+  }
+
+  h1 {
+    font-size: 34px;
+  }
+
+  .metrics,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .record {
+    grid-template-columns: 1fr;
+  }
+}
+`
+  };
+}
+
+function inferStarterDomain(requirement: string): "crm" | "booking" | "general" {
+  if (/客户|销售|跟进|线索|成交|crm/i.test(requirement)) {
+    return "crm";
+  }
+  if (/预约|门店|到店|排班|时间|预订/i.test(requirement)) {
+    return "booking";
+  }
+  return "general";
+}
+
+function titleForRequirement(requirement: string): string {
+  const cleaned = requirement
+    .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
+    .replace(/^(帮我|请|我想|我要|想要|需要|做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|做|创建|开发|生成|搭建)/, "")
+    .split(/[，。；;,.!?！？\n]/)[0]
+    .trim();
+  return cleaned || "业务工作台";
+}
+
+function escapeTsxText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\$/g, "\\$")
+    .replace(/</g, "＜")
+    .replace(/>/g, "＞")
+    .replace(/{/g, "｛")
+    .replace(/}/g, "｝");
 }
 
 interface ValidationOutcome {
