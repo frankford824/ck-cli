@@ -336,6 +336,27 @@ describe("experience", () => {
     expect(text).not.toContain("```");
   });
 
+  it("prioritizes background action status in boss report cards", () => {
+    const card = createBossReportCard({
+      productName: "客户跟进系统",
+      background: {
+        status: "in-progress",
+        summary: "确认交付并合并正在后台处理。稍等片刻后，可以再次询问进度。",
+        proof: ["后台动作：确认交付并合并", "当前仍在处理。"]
+      },
+      auditSummary: "最近处理过程已保存，可追溯。"
+    });
+    const text = renderBossReportCard(card);
+
+    expect(card.status).toBe("in-progress");
+    expect(text).toContain("有一个后台动作正在处理");
+    expect(text).toContain("确认交付并合并正在后台处理");
+    expect(text).toContain("稍后再查进度");
+    expect(text).not.toContain(".ccli");
+    expect(text).not.toContain("pid");
+    expect(text).not.toContain("```");
+  });
+
   it("renders an acceptance guide for non-technical review", () => {
     const guide = createAcceptanceGuide({
       productName: "库存看板",

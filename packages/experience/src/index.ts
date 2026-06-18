@@ -225,6 +225,12 @@ export interface ResumeGuide {
 
 export type BossReportStatus = "ready" | "in-progress" | "needs-attention" | "empty";
 
+export interface BossBackgroundActivity {
+  status: Exclude<BossReportStatus, "empty">;
+  summary: string;
+  proof?: string[];
+}
+
 export interface BossReportCard {
   title: string;
   summary: string;
@@ -235,6 +241,7 @@ export interface BossReportCard {
   proof: string[];
   actions: NextAction[];
   ask: string;
+  background?: BossBackgroundActivity;
 }
 
 export function welcomeCard(): WelcomeCard {
@@ -1157,29 +1164,24 @@ export function createBossReportCard(input: {
   nextActions?: NextAction[];
   auditSummary?: string;
   approvalSummary?: string;
+  background?: BossBackgroundActivity;
 }): BossReportCard {
   const productName = cleanText(input.productName);
   const goal = cleanText(input.goal);
+  const background = cleanBossBackgroundActivity(input.background);
   const task = cleanText(input.progress?.task ?? input.state?.currentTask);
   const progressSummary = cleanText(input.progress?.summary);
   const stateSummary = cleanText(input.state?.summary);
   const auditSummary = cleanText(input.auditSummary);
   const approvalSummary = cleanText(input.approvalSummary);
-  const hasAnyRecord = Boolean(productName || goal || task || input.progress || input.state);
-  const status = reportStatus(input, hasAnyRecord);
+  const hasAnyRecord = Boolean(background || productName || goal || task || input.progress || input.state);
+  const status = reportStatus({ ...input, background }, hasAnyRecord);
   const subject = productName ? `「${productName}」` : "当前产品";
-  const summary =
-    status === "empty"
-      ? "还没有找到可汇报的产品。建议先安全试用，或者从一个常见产品模板开始。"
-      : status === "needs-attention"
-        ? `${subject}有一项需要处理的情况，建议先看影响，再继续修改或撤回。`
-        : status === "ready"
-          ? `${subject}已有可验收结果，建议先打开页面或按清单验收。`
-          : `${subject}正在推进中，可以先看当前重点，再决定继续、验收或调整。`;
+  const summary = reportSummary(subject, status, background);
   const focus =
     status === "empty"
       ? "先确定要做哪个业务产品，让 ccli 生成一个可以看的首版。"
-      : approvalSummary ?? progressSummary ?? stateSummary ?? auditSummary ?? goal ?? task ?? "先打开当前结果，看是否符合业务目标。";
+      : background?.summary ?? approvalSummary ?? progressSummary ?? stateSummary ?? auditSummary ?? goal ?? task ?? "先打开当前结果，看是否符合业务目标。";
 
   return {
     title: "老板交付卡",
@@ -1188,6 +1190,7 @@ export function createBossReportCard(input: {
     goal,
     status,
     focus,
+    background,
     proof: reportProof({
       productName,
       goal,
@@ -1196,7 +1199,8 @@ export function createBossReportCard(input: {
       state: input.state,
       canPreview: input.canPreview,
       auditSummary,
-      approvalSummary
+      approvalSummary,
+      background
     }),
     actions: (input.nextActions?.length ? input.nextActions : defaultReportActions(status, Boolean(input.canPreview))).slice(0, 5),
     ask: status === "empty" ? "不知道怎么开始，就直接说：试用一下。" : "不确定下一步，就直接说：下一步怎么办。"
@@ -1734,9 +1738,13 @@ function reportStatus(input: {
   progress?: ResumeProgressSnapshot;
   state?: ResumeStateSnapshot;
   canPreview?: boolean;
+  background?: BossBackgroundActivity;
 }, hasAnyRecord: boolean): BossReportStatus {
   if (!hasAnyRecord) {
     return "empty";
+  }
+  if (input.background?.status) {
+    return input.background.status;
   }
   if (input.state?.status === "failed" || input.progress?.validation === "failed") {
     return "needs-attention";
@@ -1745,6 +1753,40 @@ function reportStatus(input: {
     return "ready";
   }
   return "in-progress";
+}
+
+function reportSummary(subject: string, status: BossReportStatus, background?: BossBackgroundActivity): string {
+  if (background?.status === "in-progress") {
+    return `${subject}有一个后台动作正在处理，可以稍后再问进度。`;
+  }
+  if (background?.status === "needs-attention") {
+    return `${subject}有一个后台动作可能没有顺利完成，建议先看影响。`;
+  }
+  if (background?.status === "ready") {
+    return `${subject}刚完成一个后台动作，可以继续验收或决定下一步。`;
+  }
+  if (status === "empty") {
+    return "还没有找到可汇报的产品。建议先安全试用，或者从一个常见产品模板开始。";
+  }
+  if (status === "needs-attention") {
+    return `${subject}有一项需要处理的情况，建议先看影响，再继续修改或撤回。`;
+  }
+  if (status === "ready") {
+    return `${subject}已有可验收结果，建议先打开页面或按清单验收。`;
+  }
+  return `${subject}正在推进中，可以先看当前重点，再决定继续、验收或调整。`;
+}
+
+function cleanBossBackgroundActivity(input?: BossBackgroundActivity): BossBackgroundActivity | undefined {
+  const summary = cleanText(input?.summary);
+  if (!input || !summary || !["in-progress", "ready", "needs-attention"].includes(input.status)) {
+    return undefined;
+  }
+  return {
+    status: input.status,
+    summary,
+    proof: input.proof?.map((item) => cleanText(item)).filter((item): item is string => Boolean(item)).slice(0, 3)
+  };
 }
 
 function reportProof(input: {
@@ -1756,8 +1798,10 @@ function reportProof(input: {
   canPreview?: boolean;
   auditSummary?: string;
   approvalSummary?: string;
+  background?: BossBackgroundActivity;
 }): string[] {
   const proof = [
+    ...(input.background?.proof ?? []),
     input.productName ? `已识别当前产品：${input.productName}` : undefined,
     input.goal ? `已记录业务目标：${input.goal}` : undefined,
     input.approvalSummary,
@@ -1796,6 +1840,14 @@ function defaultReportActions(status: BossReportStatus, canPreview: boolean): Ne
   }
 
   const actions: NextAction[] = [];
+  if (status === "in-progress") {
+    actions.push({
+      id: "report",
+      title: "稍后再查进度",
+      reason: "后台动作还在处理，稍等片刻再问就能接上现场。",
+      say: "给我一个进度汇报"
+    });
+  }
   if (canPreview) {
     actions.push({
       id: "preview-current",

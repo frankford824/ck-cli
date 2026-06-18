@@ -146,6 +146,59 @@ describe("cli boss experience", () => {
       await rm(project, { recursive: true, force: true });
     }
   });
+
+  it("reports hardware background runs without leaking runtime details", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-hardware-run-"));
+    try {
+      const runDir = join(cwd, ".ccli", "hardware-runs");
+      await mkdir(runDir, { recursive: true });
+      const startedAt = "2026-06-18T12:00:00.000Z";
+      const logFile = join(runDir, "20260618120000-finish.log");
+      await writeFile(logFile, "后台处理中\n", "utf8");
+      await writeFile(
+        join(runDir, "20260618120000-finish.json"),
+        `${JSON.stringify(
+          {
+            id: "20260618120000-finish",
+            actionId: "finish-current",
+            label: "确认交付并合并",
+            startedAt,
+            logFile,
+            pid: process.pid
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "给我一个进度汇报", "--json"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("后台动作正在处理");
+      expect(stdout).toContain("确认交付并合并正在后台处理");
+      expect(stdout).toContain("稍后再查进度");
+      expect(stdout).not.toContain(".ccli");
+      expect(stdout).not.toContain("hardware-runs");
+      expect(stdout).not.toContain("pid");
+      expect(stdout).not.toContain(logFile);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 async function runCliWithInput(

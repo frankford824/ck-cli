@@ -45,6 +45,7 @@ import {
   toPublicExperienceData,
   toPublicHardwareResponse,
   type BossApprovalReceipt,
+  type BossBackgroundActivity,
   type BossBrief,
   type BossClarificationAnswers,
   type BossQuestionCard,
@@ -106,6 +107,16 @@ interface HardwarePendingAction {
   sourceUtterance: string;
   createdAt: string;
   expiresAt: string;
+}
+
+interface HardwareRunRecord {
+  id: string;
+  actionId: string;
+  label: string;
+  startedAt: string;
+  logFile: string;
+  pid?: number;
+  sourceUtterance?: string;
 }
 
 program
@@ -1407,11 +1418,121 @@ function hardwarePendingActionPath(cwd: string): string {
   return resolve(cwd, ".ccli", "hardware-pending-action.json");
 }
 
+function hardwareRunsDir(cwd: string): string {
+  return resolve(cwd, ".ccli", "hardware-runs");
+}
+
+async function writeHardwareRunRecord(cwd: string, record: HardwareRunRecord): Promise<void> {
+  const dir = hardwareRunsDir(cwd);
+  await mkdir(dir, { recursive: true });
+  await writeFile(resolve(dir, `${record.id}.json`), `${JSON.stringify(record, null, 2)}\n`, "utf8");
+}
+
+async function readLatestHardwareRunActivity(cwd: string): Promise<BossBackgroundActivity | undefined> {
+  const latest = await readLatestHardwareRunRecord(cwd);
+  return latest ? summarizeHardwareRun(latest) : undefined;
+}
+
+async function readLatestRelevantHardwareRunActivity(cwd: string, targetCwd: string): Promise<BossBackgroundActivity | undefined> {
+  const records = await Promise.all([
+    readLatestHardwareRunRecord(cwd).catch(() => undefined),
+    targetCwd === cwd ? undefined : readLatestHardwareRunRecord(targetCwd).catch(() => undefined)
+  ]);
+  const latest = records
+    .filter((record): record is HardwareRunRecord => Boolean(record))
+    .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))[0];
+  return latest ? summarizeHardwareRun(latest) : undefined;
+}
+
+async function readLatestHardwareRunRecord(cwd: string): Promise<HardwareRunRecord | undefined> {
+  const dir = hardwareRunsDir(cwd);
+  const files = await readdir(dir).catch(() => []);
+  const records = (
+    await Promise.all(
+      files
+        .filter((file) => file.endsWith(".json"))
+        .map((file) => readHardwareRunRecord(resolve(dir, file)))
+    )
+  )
+    .filter((record): record is HardwareRunRecord => Boolean(record))
+    .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+  return records[0];
+}
+
+async function readHardwareRunRecord(path: string): Promise<HardwareRunRecord | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<HardwareRunRecord>;
+    if (!parsed.id || !parsed.actionId || !parsed.label || !parsed.startedAt || !parsed.logFile) {
+      return undefined;
+    }
+    return {
+      id: parsed.id,
+      actionId: parsed.actionId,
+      label: parsed.label,
+      startedAt: parsed.startedAt,
+      logFile: parsed.logFile,
+      pid: typeof parsed.pid === "number" ? parsed.pid : undefined,
+      sourceUtterance: parsed.sourceUtterance
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function summarizeHardwareRun(record: HardwareRunRecord): Promise<BossBackgroundActivity> {
+  const running = record.pid ? isProcessStillRunning(record.pid) : false;
+  const log = await readFile(record.logFile, "utf8").catch(() => "");
+  const failed = /(?:问题|失败|错误|error|failed|exception|ELIFECYCLE)/i.test(log);
+  const label = cleanHardwareRunLabel(record.label);
+  const proof = [
+    `后台动作：${label}`,
+    `开始时间：${formatShortDate(record.startedAt)}`,
+    running ? "当前仍在处理。" : failed ? "后台输出提示需要关注。" : "后台动作已经结束。"
+  ];
+
+  if (running) {
+    return {
+      status: "in-progress",
+      summary: `${label}正在后台处理。稍等片刻后，可以再次询问进度。`,
+      proof
+    };
+  }
+  if (failed) {
+    return {
+      status: "needs-attention",
+      summary: `${label}可能没有顺利完成。建议先查看影响，再决定重试或调整。`,
+      proof
+    };
+  }
+  return {
+    status: "ready",
+    summary: `${label}已经结束。可以继续验收结果，或者让系统给下一步建议。`,
+    proof
+  };
+}
+
+function isProcessStillRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cleanHardwareRunLabel(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 80) || "后台动作";
+}
+
 function confirmedHardwareAction(action: ExperienceAction): ExperienceAction {
   return { ...action, requiresConfirmation: false };
 }
 
-async function startConfirmedHardwareAction(cwd: string, action: ExperienceAction): Promise<{ startedAt: string } | undefined> {
+async function startConfirmedHardwareAction(
+  cwd: string,
+  action: ExperienceAction,
+  sourceUtterance?: string
+): Promise<{ startedAt: string; runId: string } | undefined> {
   const command = hardwareActionCommand(action);
   if (!command) {
     return undefined;
@@ -1419,7 +1540,8 @@ async function startConfirmedHardwareAction(cwd: string, action: ExperienceActio
   const startedAt = new Date().toISOString();
   const runDir = resolve(cwd, ".ccli", "hardware-runs");
   await mkdir(runDir, { recursive: true });
-  const logFile = resolve(runDir, `${startedAt.replace(/[-:.TZ]/g, "").slice(0, 14)}-${safeActionId(action.id)}.log`);
+  const runId = `${startedAt.replace(/[-:.TZ]/g, "").slice(0, 14)}-${safeActionId(action.id)}`;
+  const logFile = resolve(runDir, `${runId}.log`);
   const fd = openSync(logFile, "a");
   try {
     const child = spawn(runtimeCcliCommand(command), {
@@ -1433,11 +1555,20 @@ async function startConfirmedHardwareAction(cwd: string, action: ExperienceActio
         CCLI_HARDWARE_CONFIRMED: "1"
       }
     });
+    await writeHardwareRunRecord(cwd, {
+      id: runId,
+      actionId: action.id,
+      label: action.label,
+      startedAt,
+      logFile,
+      pid: child.pid,
+      sourceUtterance
+    });
     child.unref();
   } finally {
     closeSync(fd);
   }
-  return { startedAt };
+  return { startedAt, runId };
 }
 
 function hardwareActionCommand(action: ExperienceAction): string | undefined {
@@ -1489,7 +1620,7 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       ));
     }
     const action = confirmedHardwareAction(pending.action);
-    const started = await startConfirmedHardwareAction(inputValue.cwd, action);
+    const started = await startConfirmedHardwareAction(inputValue.cwd, action, pending.sourceUtterance);
     if (started) {
       const actions = [
         utteranceAction("report", "查看进度汇报", "给我一个进度汇报"),
@@ -2453,14 +2584,15 @@ async function buildBossHome(cwd: string) {
 async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
   const [projects, workspace] = await Promise.all([readProjectRegistry(), resolveProductWorkspace(cwd)]);
   const targetCwd = workspace?.cwd ?? cwd;
-  const [progress, state, readiness, audit, nextPlan, brief, approval] = await Promise.all([
+  const [progress, state, readiness, audit, nextPlan, brief, approval, background] = await Promise.all([
     readHarnessProgress(targetCwd).catch(() => undefined),
     readState(targetCwd).catch(() => undefined),
     previewReadiness(targetCwd).catch(() => undefined),
     readLatestAuditSummary(targetCwd).catch(() => ({ entries: [] })),
     buildNextActionPlan(targetCwd).catch(() => ({ summary: "先看当前结果，再决定下一步。", actions: [] })),
     readBossBrief(targetCwd).catch(() => undefined),
-    readBossApproval(targetCwd).catch(() => undefined)
+    readBossApproval(targetCwd).catch(() => undefined),
+    readLatestRelevantHardwareRunActivity(cwd, targetCwd).catch(() => undefined)
   ]);
   const current = workspace?.project ?? projectForCwd(projects, targetCwd);
   const latest = workspace?.usedLatest ? workspace.project : undefined;
@@ -2474,7 +2606,8 @@ async function buildBossReportCard(cwd: string): Promise<BossReportCard> {
     canPreview: Boolean(readiness?.canPreview),
     nextActions: hasProduct ? reportCardActions(nextPlan.actions, Boolean(readiness?.canPreview), hasProduct) : undefined,
     auditSummary: audit.entries.length ? "最近处理过程已保存，可追溯。" : undefined,
-    approvalSummary: approval ? `老板已在 ${formatShortDate(approval.approvedAt)} 记录验收通过。` : undefined
+    approvalSummary: approval ? `老板已在 ${formatShortDate(approval.approvedAt)} 记录验收通过。` : undefined,
+    background
   });
 }
 
