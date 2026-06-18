@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { chmod, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
@@ -1403,6 +1403,55 @@ function confirmedHardwareAction(action: ExperienceAction): ExperienceAction {
   return { ...action, requiresConfirmation: false };
 }
 
+async function startConfirmedHardwareAction(cwd: string, action: ExperienceAction): Promise<{ startedAt: string } | undefined> {
+  const command = hardwareActionCommand(action);
+  if (!command) {
+    return undefined;
+  }
+  const startedAt = new Date().toISOString();
+  const runDir = resolve(cwd, ".ccli", "hardware-runs");
+  await mkdir(runDir, { recursive: true });
+  const logFile = resolve(runDir, `${startedAt.replace(/[-:.TZ]/g, "").slice(0, 14)}-${safeActionId(action.id)}.log`);
+  const fd = openSync(logFile, "a");
+  try {
+    const child = spawn(runtimeCcliCommand(command), {
+      cwd,
+      shell: true,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", fd, fd],
+      env: {
+        ...process.env,
+        CCLI_HARDWARE_CONFIRMED: "1"
+      }
+    });
+    child.unref();
+  } finally {
+    closeSync(fd);
+  }
+  return { startedAt };
+}
+
+function hardwareActionCommand(action: ExperienceAction): string | undefined {
+  if (action.kind === "command" && action.command?.trim()) {
+    return withYesFlag(action.command.trim());
+  }
+  const say = action.say?.trim();
+  return say ? `ccli ${shellQuote(say)} --yes` : undefined;
+}
+
+function runtimeCcliCommand(command: string): string {
+  return command.replace(/^ccli(?=\s|$)/, `${shellQuote(process.execPath)} ${shellQuote(process.argv[1] ?? "ccli")}`);
+}
+
+function withYesFlag(command: string): string {
+  return /\s--yes(?:\s|$)/.test(command) ? command : `${command} --yes`;
+}
+
+function safeActionId(id: string): string {
+  return id.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "action";
+}
+
 function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
@@ -1432,6 +1481,24 @@ async function hardwareResponseForUtterance(inputValue: { cwd: string; utterance
       ));
     }
     const action = confirmedHardwareAction(pending.action);
+    const started = await startConfirmedHardwareAction(inputValue.cwd, action);
+    if (started) {
+      const actions = [
+        utteranceAction("report", "查看进度汇报", "给我一个进度汇报"),
+        utteranceAction("next", "下一步怎么办", "下一步怎么办")
+      ];
+      return toPublicHardwareResponse(createHardwareResponse(
+        createExperienceEvent({
+          surface: "hardware",
+          tone: "success",
+          say: `已确认，正在开始：${action.label}。`,
+          screen: `已确认\n正在开始：${action.label}\n完成后可以说：给我一个进度汇报。`,
+          choices: choicesFromActions(actions),
+          actions
+        }),
+        { kind: "action-started", action, sourceUtterance: pending.sourceUtterance, createdAt: pending.createdAt, startedAt: started.startedAt }
+      ));
+    }
     return toPublicHardwareResponse(createHardwareResponse(
       createExperienceEvent({
         surface: "hardware",
