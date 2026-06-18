@@ -69,6 +69,13 @@ export interface MergePrResult {
   message: string;
 }
 
+const GIT_STATUS_RUNTIME_EXCLUDES = [
+  ".ccli/audit/**",
+  ".ccli/progress.json",
+  ".ccli/hardware-runs/**",
+  ".ccli/hardware-pending-action.json"
+];
+
 export interface GitCommitSummary {
   hash: string;
   message: string;
@@ -236,7 +243,8 @@ export class GitTool {
   }
 
   async status(cwd: string): Promise<string> {
-    const result = await runShell("git status --short", cwd, 30_000);
+    const excludes = GIT_STATUS_RUNTIME_EXCLUDES.map((path) => quote(`:(exclude)${path}`)).join(" ");
+    const result = await runShell(`git status --short -- . ${excludes}`, cwd, 30_000);
     return result.stdout.trim();
   }
 
