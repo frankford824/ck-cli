@@ -39,6 +39,7 @@ export function welcomeCard(): WelcomeCard {
     nextActions: [
       "首次设置：ccli setup",
       "一句话创建产品：ccli create \"做一个客户管理系统\"",
+      "查看本地页面：ccli preview --install",
       "创建空项目：ccli new 我的应用",
       "改当前项目：ccli \"给订单页面增加导出按钮\"",
       "进入对话：ccli chat",

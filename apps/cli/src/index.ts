@@ -16,7 +16,7 @@ import { ProductRenderer } from "@ccli/product-ui";
 import { createDefaultProviderRegistry, loadCcliConfig, type CcliConfig } from "@ccli/providers";
 import { ReviewerAgent } from "@ccli/review";
 import { AuditSession, readLatestAuditSummary, readState } from "@ccli/session";
-import { createTemplateProject, GitHubTool, GitTool } from "@ccli/tools";
+import { createTemplateProject, GitHubTool, GitTool, ProjectTool } from "@ccli/tools";
 
 const program = new Command();
 
@@ -77,8 +77,9 @@ program
   .description("按一句中文产品目标创建项目并立即开工")
   .option("--name <name>", "项目名称")
   .option("--install", "创建后安装依赖并启用更完整验证")
+  .option("--preview", "创建后直接启动本地预览")
   .option("--with-pr", "完成后尝试创建团队审查入口")
-  .action(async (ideaParts: string[], options: { name?: string; install?: boolean; withPr?: boolean }) => {
+  .action(async (ideaParts: string[], options: { name?: string; install?: boolean; preview?: boolean; withPr?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert, yes }) => {
       const idea = ideaParts.join(" ").trim();
       if (!idea) {
@@ -93,6 +94,10 @@ program
       print(renderer.render({ type: "plan", message: "项目已准备好，开始按你的目标推进第一轮开发。" }));
       await runRequirement({ cwd: target, expert, yes, requirement: idea, withPr: Boolean(options.withPr) });
       print(renderer.render({ type: "done", message: "第一个版本已处理完成。后续可以进入这个项目继续用中文提需求。", severity: "success" }));
+      if (options.preview) {
+        await ensureDependenciesForPreview({ cwd: target, renderer, yes });
+        await startPreviewServer({ cwd: target, renderer, host: "127.0.0.1", port: 5173 });
+      }
     });
   });
 
@@ -150,6 +155,44 @@ program
     await withCli(async ({ renderer, cwd, expert }) => {
       const report = healthSummary(await checkHealth(cwd));
       print(renderHealthReport(report, expert));
+    });
+  });
+
+program
+  .command("preview")
+  .description("启动当前项目的本地预览")
+  .option("--install", "缺少依赖时自动安装")
+  .option("--host <host>", "预览地址", "127.0.0.1")
+  .option("--port <port>", "预览端口", "5173")
+  .option("--check", "只检查预览是否准备好，不启动")
+  .action(async (options: { install?: boolean; host?: string; port?: string; check?: boolean }) => {
+    await withCli(async ({ renderer, cwd, yes }) => {
+      const port = Number(options.port ?? "5173");
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+        return;
+      }
+
+      const readiness = await previewReadiness(cwd);
+      if (!readiness.canPreview) {
+        print(renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
+        return;
+      }
+
+      if (!readiness.hasDependencies) {
+        if (!options.install) {
+          print(renderer.render({ type: "risk", message: "当前项目还没有安装运行所需内容。你可以让 ccli 自动准备后再预览。", severity: "warning" }));
+          return;
+        }
+        await ensureDependenciesForPreview({ cwd, renderer, yes });
+      }
+
+      if (options.check) {
+        print(renderer.render({ type: "done", message: "当前项目已经可以启动本地预览。", severity: "success" }));
+        return;
+      }
+
+      await startPreviewServer({ cwd, renderer, host: options.host ?? "127.0.0.1", port });
     });
   });
 
@@ -586,6 +629,171 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
       ])
     )
   };
+}
+
+interface PreviewReadiness {
+  canPreview: boolean;
+  hasDependencies: boolean;
+  manager?: "pnpm" | "npm" | "yarn" | "bun";
+  message: string;
+}
+
+async function previewReadiness(cwd: string): Promise<PreviewReadiness> {
+  const project = new ProjectTool();
+  const scripts = await project.packageScripts(cwd);
+  const manager = await project.detectPackageManager(cwd);
+  if (!existsSync(resolve(cwd, "package.json")) || !manager) {
+    return {
+      canPreview: false,
+      hasDependencies: false,
+      message: "当前目录还不是可以预览的 Web 项目。可以先创建一个新产品项目。"
+    };
+  }
+  if (!scripts.dev) {
+    return {
+      canPreview: false,
+      hasDependencies: existsSync(resolve(cwd, "node_modules")),
+      manager,
+      message: "当前项目没有本地预览入口。可以继续让 ccli 为这个项目补上 Web 预览能力。"
+    };
+  }
+  return {
+    canPreview: true,
+    hasDependencies: existsSync(resolve(cwd, "node_modules")),
+    manager,
+    message: "当前项目可以启动本地预览。"
+  };
+}
+
+async function ensureDependenciesForPreview(inputValue: { cwd: string; renderer: ProductRenderer; yes: boolean }): Promise<void> {
+  if (existsSync(resolve(inputValue.cwd, "node_modules"))) {
+    return;
+  }
+  const confirmed = inputValue.yes || (await confirmChinese("预览前需要准备项目运行内容，会访问网络。是否继续？"));
+  if (!confirmed) {
+    throw new Error("还没有准备项目运行内容，已停止预览。");
+  }
+  const project = new ProjectTool();
+  const manager = (await project.detectPackageManager(inputValue.cwd)) ?? "pnpm";
+  const command = manager === "npm" ? "npm install" : manager === "yarn" ? "yarn install" : manager === "bun" ? "bun install" : "pnpm install";
+  const audit = await AuditSession.create({ cwd: inputValue.cwd, task: "准备本地预览" });
+  const { ShellTool } = await import("@ccli/tools");
+  print(inputValue.renderer.render({ type: "validate", message: "正在准备本地预览所需内容。" }));
+  const result = await new ShellTool().run(command, {
+    cwd: inputValue.cwd,
+    audit,
+    kind: "install",
+    confirmed: true,
+    timeoutMs: 180_000
+  });
+  if (result.exitCode !== 0) {
+    throw new Error("本地预览准备失败，技术细节已记录到审计日志。");
+  }
+}
+
+async function startPreviewServer(inputValue: {
+  cwd: string;
+  renderer: ProductRenderer;
+  host: string;
+  port: number;
+}): Promise<void> {
+  const readiness = await previewReadiness(inputValue.cwd);
+  if (!readiness.canPreview || !readiness.manager) {
+    print(inputValue.renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
+    return;
+  }
+
+  const url = `http://${inputValue.host}:${inputValue.port}`;
+  const command = previewCommand(readiness.manager, inputValue.host, inputValue.port);
+  print(inputValue.renderer.render({ type: "info", message: "正在启动本地预览。" }));
+
+  await new Promise<void>((resolvePreview, rejectPreview) => {
+    const child = spawn(command, {
+      cwd: inputValue.cwd,
+      shell: true,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let announced = false;
+    let outputBuffer = "";
+    let settled = false;
+    const readyTimer = setTimeout(() => {
+      if (!announced) {
+        child.kill("SIGTERM");
+        settle(() => rejectPreview(new Error("本地预览启动超时。")));
+      }
+    }, 45_000);
+
+    const cleanup = () => {
+      clearTimeout(readyTimer);
+      process.off("SIGINT", stopPreview);
+      process.off("SIGTERM", stopPreview);
+    };
+
+    const settle = (finish: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      finish();
+    };
+
+    const stopPreview = () => {
+      child.kill("SIGTERM");
+    };
+
+    const announce = () => {
+      if (announced) {
+        return;
+      }
+      announced = true;
+      clearTimeout(readyTimer);
+      print(inputValue.renderer.render({ type: "done", message: `本地预览已启动。打开 ${url}`, severity: "success" }));
+      print("保持这个窗口打开即可继续预览。结束预览时按 Ctrl+C。");
+    };
+
+    process.once("SIGINT", stopPreview);
+    process.once("SIGTERM", stopPreview);
+
+    const onData = (chunk: Buffer) => {
+      outputBuffer = `${outputBuffer}${chunk.toString("utf8")}`.slice(-4000);
+      if (/local:|ready in|localhost|127\.0\.0\.1/i.test(outputBuffer)) {
+        announce();
+      }
+    };
+
+    child.stdout?.on("data", onData);
+    child.stderr?.on("data", onData);
+    child.on("error", (error) => {
+      settle(() => rejectPreview(error));
+    });
+    child.on("close", (code) => {
+      if (!announced && code !== 0) {
+        settle(() => rejectPreview(new Error("本地预览没有启动成功。")));
+        return;
+      }
+      settle(resolvePreview);
+    });
+  });
+}
+
+function previewCommand(manager: "pnpm" | "npm" | "yarn" | "bun", host: string, port: number): string {
+  const args = `--host ${shellQuote(host)} --port ${port} --strictPort`;
+  if (manager === "npm") {
+    return `npm run dev -- ${args}`;
+  }
+  if (manager === "yarn") {
+    return `yarn dev ${args}`;
+  }
+  if (manager === "bun") {
+    return `bun run dev -- ${args}`;
+  }
+  return `pnpm dev -- ${args}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 async function createBossProject(inputValue: {
