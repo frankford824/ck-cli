@@ -35,9 +35,9 @@ irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
 安装完成后验证：
 
 ```bash
-ccli --help
 ccli
-ccli roles
+ccli setup
+ccli doctor
 ```
 
 如果要在 PR 分支上提前试用：
@@ -88,6 +88,7 @@ pnpm dev --help
 
 ```bash
 ccli
+ccli setup
 ccli doctor
 ccli chat
 ccli "给订单页面增加导出按钮"
@@ -112,10 +113,10 @@ ccli hardware --expert
 安装后直接输入：
 
 ```bash
-ccli
+ccli setup
 ```
 
-它会显示中文欢迎页和下一步建议。你也可以不用学命令，直接说目标：
+它会用中文带你完成首次设置：选择模型服务、保存授权、可选创建第一个项目。设置完成后，你也可以不用学命令，直接说目标：
 
 ```bash
 ccli "把首页改得更像高端咨询公司"
@@ -134,6 +135,22 @@ ccli doctor
 ```
 
 `doctor` 只用中文说明哪些能力已经就绪、哪些需要处理。普通模式不会显示命令、路径、堆栈或底层错误。
+
+## 首次设置
+
+`ccli setup` 是老板友好的开箱入口。它会做三件事：
+
+- 保存一次模型授权，后续项目自动继承。
+- 把规划、开发、审查角色默认绑定到同一个可用模型服务，避免普通用户理解多模型配置。
+- 可选创建第一个 Web 项目。
+
+也可以非交互设置：
+
+```bash
+ccli setup --provider openai --api-key "你的授权码" --project 我的应用
+```
+
+支持的模型服务：OpenAI、Anthropic、Google、Qwen、DeepSeek、Kimi。
 
 ## 驾驭系统
 
@@ -185,7 +202,7 @@ ccli ship --merge --yes
 
 ## 配置
 
-全局配置位于 `~/.ccli/config.json`，项目配置位于 `.ccli/config.json`。密钥优先从环境变量读取。
+全局配置位于 `~/.ccli/config.json`，项目配置位于 `.ccli/config.json`。普通用户优先使用 `ccli setup`，专家用户也可以手动维护配置。密钥优先从全局配置或环境变量读取。
 
 ```json
 {

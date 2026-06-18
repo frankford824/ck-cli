@@ -8,6 +8,7 @@ describe("webTemplateFiles", () => {
     expect(files["package.json"]).toContain("vite");
     expect(files["src/App.tsx"]).toContain("演示项目");
     expect(files[".ccli/config.json"]).toContain("plain-user");
+    expect(files[".ccli/config.json"]).not.toContain("claude-sonnet");
     expect(files["DESIGN.md"]).toContain("设计契约");
     expect(files["AGENTS.md"]).toContain("项目指南");
     expect(files[".ccli/harness/rules/safety.md"]).toContain("安全规则");
