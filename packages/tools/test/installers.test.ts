@@ -2,6 +2,23 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("installers", () => {
+  it("prepares a bundled Node runtime when system Node is missing or old", async () => {
+    const shell = await readFile("install.sh", "utf8");
+    const powershell = await readFile("install.ps1", "utf8");
+
+    expect(shell).toContain("ensure_node");
+    expect(shell).toContain("install_node_runtime");
+    expect(shell).toContain("latest-v${NODE_MAJOR}.x");
+    expect(shell).toContain('exec "$NODE_CMD"');
+    expect(shell).not.toContain("main() {\n  check_node");
+
+    expect(powershell).toContain("Ensure-Node");
+    expect(powershell).toContain("Install-NodeRuntime");
+    expect(powershell).toContain("latest-v$NodeMajor.x");
+    expect(powershell).toContain('`"$NodeExe`"');
+    expect(powershell).not.toContain("Test-NodeVersion\nEnsure-Pnpm");
+  });
+
   it("keeps git optional for first-time installs", async () => {
     const shell = await readFile("install.sh", "utf8");
     const powershell = await readFile("install.ps1", "utf8");

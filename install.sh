@@ -6,6 +6,9 @@ REF="${CCLI_REF:-main}"
 INSTALL_DIR="${CCLI_HOME:-$HOME/.ccli/ck-cli}"
 BIN_DIR="${CCLI_BIN_DIR:-$HOME/.local/bin}"
 PNPM_VERSION="${CCLI_PNPM_VERSION:-10.27.0}"
+NODE_MAJOR="${CCLI_NODE_MAJOR:-22}"
+NODE_DIR="${CCLI_NODE_HOME:-$HOME/.ccli/node-v${NODE_MAJOR}}"
+NODE_CMD="node"
 
 log() {
   printf '%s\n' "$1"
@@ -20,10 +23,94 @@ need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "缺少 $1，请先安装后重试。"
 }
 
-check_node() {
-  need_command node
-  node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) process.exit(1)' \
-    || fail "需要 Node.js 20 或更高版本。"
+node_ready() {
+  command -v "$1" >/dev/null 2>&1 || return 1
+  "$1" -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) process.exit(1)' >/dev/null 2>&1
+}
+
+ensure_node() {
+  if node_ready node; then
+    NODE_CMD="$(command -v node)"
+    return
+  fi
+
+  if [ -x "$NODE_DIR/bin/node" ] && node_ready "$NODE_DIR/bin/node"; then
+    NODE_CMD="$NODE_DIR/bin/node"
+    export PATH="$NODE_DIR/bin:$PATH"
+    return
+  fi
+
+  log "正在准备 ccli 运行环境。"
+  install_node_runtime
+  NODE_CMD="$NODE_DIR/bin/node"
+  export PATH="$NODE_DIR/bin:$PATH"
+  node_ready "$NODE_CMD" || fail "无法准备 ccli 运行环境，请安装 Node.js 20 或更高版本后重试。"
+}
+
+install_node_runtime() {
+  mkdir -p "$(dirname "$NODE_DIR")"
+  rm -rf "$NODE_DIR"
+
+  if command -v curl >/dev/null 2>&1; then
+    downloader="curl -fsSL"
+  elif command -v wget >/dev/null 2>&1; then
+    downloader="wget -qO-"
+  else
+    fail "当前电脑缺少下载工具。请安装 curl 或 wget 后重试。"
+  fi
+
+  node_base_url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x"
+  node_platform="$(node_platform)"
+  node_file="$($downloader "$node_base_url/SHASUMS256.txt" | awk -v platform="$node_platform" '$2 ~ ("-" platform "\\.(tar\\.xz|tar\\.gz)$") { print $2; exit }')"
+  [ -n "$node_file" ] || fail "没有找到适合当前电脑的 Node.js 安装包。"
+
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  archive_path="$tmp_dir/$node_file"
+  $downloader "$node_base_url/$node_file" >"$archive_path"
+  case "$node_file" in
+    *.tar.xz)
+      tar -xJf "$archive_path" -C "$tmp_dir" || fail "无法解压 ccli 运行环境。"
+      ;;
+    *.tar.gz)
+      tar -xzf "$archive_path" -C "$tmp_dir" || fail "无法解压 ccli 运行环境。"
+      ;;
+    *)
+      fail "不支持的 ccli 运行环境安装包。"
+      ;;
+  esac
+
+  extracted="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  [ -n "$extracted" ] || fail "ccli 运行环境下载内容不完整，请稍后重试。"
+  mv "$extracted" "$NODE_DIR"
+}
+
+node_platform() {
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64)
+      arch="x64"
+      ;;
+    arm64|aarch64)
+      arch="arm64"
+      ;;
+    *)
+      fail "暂不支持当前电脑架构：$arch。"
+      ;;
+  esac
+
+  case "$os" in
+    Linux)
+      printf 'linux-%s\n' "$arch"
+      ;;
+    Darwin)
+      printf 'darwin-%s\n' "$arch"
+      ;;
+    *)
+      fail "暂不支持当前系统：$os。"
+      ;;
+  esac
 }
 
 ensure_pnpm() {
@@ -127,19 +214,19 @@ write_shim() {
   mkdir -p "$BIN_DIR"
   cat >"$BIN_DIR/ccli" <<EOF
 #!/usr/bin/env sh
-exec node "$INSTALL_DIR/apps/cli/dist/index.js" "\$@"
+exec "$NODE_CMD" "$INSTALL_DIR/apps/cli/dist/index.js" "\$@"
 EOF
   chmod +x "$BIN_DIR/ccli"
 }
 
 show_success_card() {
-  node "$INSTALL_DIR/apps/cli/dist/index.js" installed || {
+  "$NODE_CMD" "$INSTALL_DIR/apps/cli/dist/index.js" installed || {
     log "安装完成。现在可以直接输入 ccli 打开开箱首页。"
   }
 }
 
 main() {
-  check_node
+  ensure_node
   ensure_pnpm
   checkout_repo
   build_cli

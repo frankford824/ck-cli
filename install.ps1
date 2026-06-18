@@ -6,6 +6,9 @@ $InstallDir = if ($env:CCLI_HOME) { $env:CCLI_HOME } else { Join-Path $env:LOCAL
 $BinDir = if ($env:CCLI_BIN_DIR) { $env:CCLI_BIN_DIR } else { Join-Path $env:LOCALAPPDATA "ccli\bin" }
 $PnpmVersion = if ($env:CCLI_PNPM_VERSION) { $env:CCLI_PNPM_VERSION } else { "10.27.0" }
 $ArchiveUrl = if ($env:CCLI_ARCHIVE_URL) { $env:CCLI_ARCHIVE_URL } else { "" }
+$NodeMajor = if ($env:CCLI_NODE_MAJOR) { $env:CCLI_NODE_MAJOR } else { "22" }
+$NodeDir = if ($env:CCLI_NODE_HOME) { $env:CCLI_NODE_HOME } else { Join-Path $env:LOCALAPPDATA "ccli\node-v$NodeMajor" }
+$NodeExe = "node"
 
 function Write-Step($Message) {
   Write-Host $Message
@@ -22,12 +25,79 @@ function Require-Command($Name) {
   }
 }
 
-function Test-NodeVersion {
-  Require-Command "node"
-  $Major = node -p "Number(process.versions.node.split('.')[0])"
-  if ([int]$Major -lt 20) {
-    Stop-Install "需要 Node.js 20 或更高版本。"
+function Test-NodeCommand($Command) {
+  try {
+    & $Command -e "const major = Number(process.versions.node.split('.')[0]); if (major < 20) process.exit(1)" | Out-Null
+    return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
   }
+}
+
+function Ensure-Node {
+  $SystemNode = Get-Command "node" -ErrorAction SilentlyContinue
+  if ($SystemNode -and (Test-NodeCommand $SystemNode.Source)) {
+    $script:NodeExe = $SystemNode.Source
+    return
+  }
+
+  $BundledNode = Join-Path $NodeDir "node.exe"
+  if ((Test-Path $BundledNode) -and (Test-NodeCommand $BundledNode)) {
+    $script:NodeExe = $BundledNode
+    $env:PATH = "$NodeDir;$env:PATH"
+    return
+  }
+
+  Write-Step "正在准备 ccli 运行环境。"
+  Install-NodeRuntime
+  $script:NodeExe = $BundledNode
+  $env:PATH = "$NodeDir;$env:PATH"
+  if (-not (Test-NodeCommand $script:NodeExe)) {
+    Stop-Install "无法准备 ccli 运行环境，请安装 Node.js 20 或更高版本后重试。"
+  }
+}
+
+function Install-NodeRuntime {
+  $Parent = Split-Path -Parent $NodeDir
+  New-Item -ItemType Directory -Force -Path $Parent | Out-Null
+  Remove-Item -Path $NodeDir -Recurse -Force -ErrorAction SilentlyContinue
+
+  $Platform = Resolve-NodePlatform
+  $BaseUrl = "https://nodejs.org/dist/latest-v$NodeMajor.x"
+  $Sums = (Invoke-WebRequest -Uri "$BaseUrl/SHASUMS256.txt").Content
+  $NodeFile = ($Sums -split "`n" | ForEach-Object {
+    if ($_ -match "(node-v.+-$Platform\.zip)$") { $Matches[1] }
+  } | Select-Object -First 1)
+  if (-not $NodeFile) {
+    Stop-Install "没有找到适合当前电脑的 Node.js 安装包。"
+  }
+
+  $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccli-node-" + [System.Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
+  try {
+    $ZipPath = Join-Path $TempRoot $NodeFile
+    Invoke-WebRequest -Uri "$BaseUrl/$NodeFile" -OutFile $ZipPath
+    Expand-Archive -Path $ZipPath -DestinationPath $TempRoot -Force
+    $Extracted = Get-ChildItem -Path $TempRoot -Directory | Select-Object -First 1
+    if (-not $Extracted) {
+      Stop-Install "ccli 运行环境下载内容不完整，请稍后重试。"
+    }
+    Move-Item -Path $Extracted.FullName -Destination $NodeDir
+  } finally {
+    Remove-Item -Path $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Resolve-NodePlatform {
+  $Arch = if ($env:PROCESSOR_ARCHITECTURE -match "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -match "ARM64") {
+    "arm64"
+  } elseif ([Environment]::Is64BitOperatingSystem) {
+    "x64"
+  } else {
+    Stop-Install "暂不支持 32 位 Windows。"
+  }
+
+  return "win-$Arch"
 }
 
 function Ensure-Pnpm {
@@ -127,19 +197,19 @@ function Write-Shim {
   New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
   $CmdPath = Join-Path $BinDir "ccli.cmd"
   $CliPath = Join-Path $InstallDir "apps\cli\dist\index.js"
-  "@echo off`r`nnode `"$CliPath`" %*`r`n" | Set-Content -Encoding ASCII -Path $CmdPath
+  "@echo off`r`n`"$NodeExe`" `"$CliPath`" %*`r`n" | Set-Content -Encoding ASCII -Path $CmdPath
 }
 
 function Show-SuccessCard {
   $CliPath = Join-Path $InstallDir "apps\cli\dist\index.js"
   try {
-    node $CliPath installed
+    & $NodeExe $CliPath installed
   } catch {
     Write-Step "安装完成。现在可以直接输入 ccli 打开开箱首页。"
   }
 }
 
-Test-NodeVersion
+Ensure-Node
 Ensure-Pnpm
 Checkout-Repo
 Build-Cli
