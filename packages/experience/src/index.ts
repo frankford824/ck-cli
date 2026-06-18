@@ -49,6 +49,7 @@ export function welcomeCard(): WelcomeCard {
       "首次设置：ccli setup",
       "最快体验：ccli go \"做一个客户管理系统\"",
       "不知道做什么：ccli ideas",
+      "直接选模板：ccli ideas 3",
       "查看我的产品：ccli projects",
       "打开最近产品：ccli open",
       "直接说：ccli \"打开我上次做的系统\"",
@@ -62,6 +63,7 @@ export function welcomeCard(): WelcomeCard {
     examples: [
       "做一个客户管理系统，能记录跟进和提醒",
       "给我几个产品模板",
+      "做第 3 个模板",
       "一键做一个门店预约系统并打开页面",
       "打开我上次做的系统",
       "把首页改得更像高端咨询公司",
