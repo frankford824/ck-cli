@@ -152,6 +152,7 @@ ccli harness
 ccli harness --init
 ccli harness --method
 ccli harness --playbook
+ccli harness --context
 ccli harness --loop
 ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
@@ -537,6 +538,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 - `ccli skills` 会给已有项目补齐可复用中文开发技能；直接说“补齐开发技能”也可以触发。
 - `ccli harness` 会给出中文健康度、已具备能力、缺口和下一步建议。
 - `ccli harness --playbook` 会把 Harness Engineering 变成当天可执行剧本：开工前定边界、阶段工具收敛、验证失败回流、独立复核、结束写现场和经验沉淀。
+- `ccli harness --context` 会检查长期事实是否过长，提示哪些内容应该拆到技能、规则或记忆里。
 - `ccli harness --roadmap` 会按 14 步路线评估当前项目：哪些已具备、哪些先补、哪些后续再做。
 - `ccli harness --loop` 会先判断项目是否适合自动循环：范围、节奏、完成标准、必须停下来的情况都会用中文说明。
 - `ccli learn` 会把一句“以后不要再这样”沉淀成项目经验。
@@ -572,6 +574,12 @@ ccli harness --method
 
 ```bash
 ccli harness --playbook
+```
+
+检查长期上下文是否需要瘦身：
+
+```bash
+ccli harness --context
 ```
 
 查看 14 步驾驭路线图：

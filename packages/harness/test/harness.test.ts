@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
+  analyzeHarnessContextHygiene,
   analyzeHarnessReadiness,
   analyzeHarnessRoadmap,
   defaultToolBudget,
@@ -13,6 +14,7 @@ import {
   recordHarnessLesson,
   readHarnessProgress,
   renderHarnessMethod,
+  renderHarnessContextHygiene,
   analyzeHarnessPlaybook,
   analyzeHarnessLoopReadiness,
   renderHarnessPlaybook,
@@ -187,8 +189,36 @@ describe("harness", () => {
     expect(method).toContain("模型 + 外部支架");
     expect(method).toContain("权限档案");
     expect(method).toContain("确定性护栏");
+    expect(method).toContain("上下文瘦身");
     expect(method).toContain("14 步路线");
     expect(method).toContain("以后不要再这样");
+  });
+
+  it("detects bloated standing context and gives plain Chinese slimming advice", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-harness-context-"));
+    try {
+      const longProcedure = Array.from(
+        { length: 90 },
+        (_, index) => `${index + 1}. 固定流程：先执行第 ${index + 1} 步，然后记录命令、日志和检查结果。`
+      ).join("\n");
+      await writeFile(join(root, "AGENTS.md"), `项目事实：所有输出默认中文。\n\n${longProcedure}\n`, "utf8");
+
+      const context = await loadHarnessContext(root);
+      const report = analyzeHarnessContextHygiene(context);
+      const rendered = renderHarnessContextHygiene(report);
+
+      expect(report.status).toBe("bloated");
+      expect(report.checks[0]?.status).toBe("bloated");
+      expect(rendered).toContain("长期上下文检查");
+      expect(rendered).toContain("需要瘦身");
+      expect(rendered).toContain("技能");
+      expect(rendered).toContain("规则");
+      expect(rendered).not.toContain(".ccli/");
+      expect(rendered).not.toContain("AGENTS.md");
+      expect(rendered).not.toMatch(/```/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("turns harness engineering into a plain Chinese playbook", async () => {

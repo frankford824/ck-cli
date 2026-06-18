@@ -59,6 +59,7 @@ import {
   type StarterIdea
 } from "@ccli/experience";
 import {
+  analyzeHarnessContextHygiene,
   analyzeHarnessReadiness,
   analyzeHarnessLoopReadiness,
   analyzeHarnessPlaybook,
@@ -67,6 +68,7 @@ import {
   readHarnessProgress,
   recordHarnessLesson,
   renderHarnessMethod,
+  renderHarnessContextHygiene,
   renderHarnessLoopReadiness,
   renderHarnessPlaybook,
   renderHarnessProfile,
@@ -824,9 +826,10 @@ program
   .option("--method", "查看驾驭方法怎么用")
   .option("--playbook", "查看今天怎么按驾驭方法推进任务")
   .option("--roadmap", "查看 14 步驾驭路线图")
+  .option("--context", "检查长期上下文是否需要瘦身")
   .option("--loop", "检查是否适合开启自动循环")
   .option("--overwrite", "覆盖已有支架文件")
-  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; loop?: boolean; overwrite?: boolean }) => {
+  .action(async (options: { init?: boolean; method?: boolean; playbook?: boolean; roadmap?: boolean; context?: boolean; loop?: boolean; overwrite?: boolean }) => {
     await withCli(async ({ renderer, cwd, expert }) => {
       if (options.method) {
         print(renderHarnessMethod());
@@ -842,6 +845,11 @@ program
         const context = await loadHarnessContext(cwd);
         const progress = await readHarnessProgress(cwd);
         print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
+        return;
+      }
+      if (options.context) {
+        const context = await loadHarnessContext(cwd);
+        print(renderHarnessContextHygiene(analyzeHarnessContextHygiene(context)));
         return;
       }
       if (options.loop) {
@@ -2362,6 +2370,12 @@ async function runNaturalLanguageIntent(inputValue: {
     const context = await loadHarnessContext(inputValue.cwd);
     const progress = await readHarnessProgress(inputValue.cwd);
     print(renderHarnessRoadmap(analyzeHarnessRoadmap(context, progress)));
+    return true;
+  }
+
+  if (isHarnessContextRequest(request)) {
+    const context = await loadHarnessContext(inputValue.cwd);
+    print(renderHarnessContextHygiene(analyzeHarnessContextHygiene(context)));
     return true;
   }
 
@@ -3986,6 +4000,12 @@ function isHarnessPlaybookRequest(request: string): boolean {
 function isHarnessRoadmapRequest(request: string): boolean {
   return /(?:路线图|14\s*步|十四步|路线|roadmap).*(?:驾驭|harness|智能体支架|开发支架)/i.test(request) ||
     /(?:驾驭|harness|智能体支架|开发支架).*(?:路线图|14\s*步|十四步|路线|roadmap)/i.test(request);
+}
+
+function isHarnessContextRequest(request: string): boolean {
+  return /(?:上下文|长期事实|项目指南|固定事实|背景资料).*(?:瘦身|太长|过载|膨胀|臃肿|检查|整理|拆分)/i.test(request) ||
+    /(?:瘦身|太长|过载|膨胀|臃肿|整理|拆分).*(?:上下文|长期事实|项目指南|固定事实|背景资料)/i.test(request) ||
+    /(?:CLAUDE|AGENTS|CCLI).*(?:太长|瘦身|整理|拆分)/i.test(request);
 }
 
 function isHarnessLoopRequest(request: string): boolean {
