@@ -15,6 +15,64 @@
 - 借鉴 open-design：新项目默认生成 `DESIGN.md`、`.ccli/skills/` 和 `.ccli/design-systems/`。
 - 借鉴 Anthropic frontend-design skill：新项目默认带中文前端设计技能，开发代理会读取设计契约和技能约束。
 
+## 一键安装
+
+合并到 `main` 后，普通用户可以直接执行：
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/main/install.sh | bash
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/frankford824/ck-cli/main/install.ps1 | iex
+```
+
+安装完成后验证：
+
+```bash
+ccli --help
+ccli roles
+```
+
+如果要在 PR 分支上提前试用：
+
+```bash
+CCLI_REF=codex/initial-ccli-implementation bash -c "$(curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/codex/initial-ccli-implementation/install.sh)"
+```
+
+Windows PowerShell：
+
+```powershell
+$env:CCLI_REF="codex/initial-ccli-implementation"; irm https://raw.githubusercontent.com/frankford824/ck-cli/codex/initial-ccli-implementation/install.ps1 | iex
+```
+
+前置要求：
+
+- Git
+- Node.js 20 或更高版本
+- pnpm，安装器会优先通过 corepack 自动启用，必要时回退到 npm 安装
+
+默认安装位置：
+
+- macOS / Linux：`~/.ccli/ck-cli`，启动器在 `~/.local/bin/ccli`
+- Windows：`%LOCALAPPDATA%\ccli\ck-cli`，启动器在 `%LOCALAPPDATA%\ccli\bin\ccli.cmd`
+
+卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frankford824/ck-cli/main/uninstall.sh | bash
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/frankford824/ck-cli/main/uninstall.ps1 | iex
+```
+
 ## 开发
 
 ```bash
