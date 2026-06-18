@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createAcceptanceGuide,
   createBossHome,
+  createBossReportCard,
   createExperienceEvent,
   createHardwareResponse,
   createResumeGuide,
@@ -12,6 +13,7 @@ import {
   healthSummary,
   renderAcceptanceGuide,
   renderBossHome,
+  renderBossReportCard,
   renderNextActions,
   renderResumeGuide,
   renderSetupGuide,
@@ -161,6 +163,37 @@ describe("experience", () => {
     expect(home.primary.command).toBe("ccli ideas");
   });
 
+  it("renders a boss report card for non-technical delivery status", () => {
+    const card = createBossReportCard({
+      productName: "客户跟进系统",
+      goal: "记录客户、跟进和提醒",
+      progress: {
+        task: "生成首版客户跟进系统",
+        currentStage: "review",
+        updatedAt: "2026-06-18T10:00:00.000Z",
+        summary: "首版页面已生成，可以先看是否一眼能懂。",
+        validation: "passed"
+      },
+      state: {
+        status: "done",
+        summary: "本次成果已保存。"
+      },
+      canPreview: true
+    });
+    const text = renderBossReportCard(card);
+
+    expect(card.status).toBe("ready");
+    expect(text).toContain("老板交付卡");
+    expect(text).toContain("客户跟进系统");
+    expect(text).toContain("当前重点");
+    expect(text).toContain("看得见的依据");
+    expect(text).toContain("直接说：打开当前产品页面");
+    expect(text).toContain("直接说：我满意，准备交付");
+    expect(text).not.toContain("diff");
+    expect(text).not.toContain("stack");
+    expect(text).not.toContain("```");
+  });
+
   it("renders an acceptance guide for non-technical review", () => {
     const guide = createAcceptanceGuide({
       productName: "库存看板",
@@ -199,6 +232,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("confirmation-empty");
     expect(hardwareManifest().output).toContain("control-help");
     expect(hardwareManifest().output).toContain("control-cancelled");
+    expect(hardwareManifest().output).toContain("report-card");
     expect(hardwareManifest().output).toContain("acceptance-guide");
     expect(hardwareManifest().output).toContain("revision-request");
     expect(hardwareManifest().output).toContain("delivery-confirmation");
@@ -221,6 +255,7 @@ describe("experience", () => {
     expect(schema.kinds).toContain("confirmation-empty");
     expect(schema.kinds).toContain("control-help");
     expect(schema.kinds).toContain("control-cancelled");
+    expect(schema.kinds).toContain("report-card");
     expect(schema.kinds).toContain("revision-request");
     expect(schema.kinds).toContain("delivery-confirmation");
     expect(schema.kinds).toContain("try-demo");
@@ -229,6 +264,7 @@ describe("experience", () => {
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "report-card")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "try-demo")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "undo-confirmation")).toBe(true);

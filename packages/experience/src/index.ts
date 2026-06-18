@@ -154,6 +154,20 @@ export interface ResumeGuide {
   ask: string;
 }
 
+export type BossReportStatus = "ready" | "in-progress" | "needs-attention" | "empty";
+
+export interface BossReportCard {
+  title: string;
+  summary: string;
+  productName?: string;
+  goal?: string;
+  status: BossReportStatus;
+  focus: string;
+  proof: string[];
+  actions: NextAction[];
+  ask: string;
+}
+
 export function welcomeCard(): WelcomeCard {
   return {
     title: "ccli 中文开发管家",
@@ -650,6 +664,88 @@ export function renderResumeGuide(guide: ResumeGuide): string {
   return lines.join("\n");
 }
 
+export function createBossReportCard(input: {
+  productName?: string;
+  goal?: string;
+  progress?: ResumeProgressSnapshot;
+  state?: ResumeStateSnapshot;
+  canPreview?: boolean;
+  nextActions?: NextAction[];
+  auditSummary?: string;
+}): BossReportCard {
+  const productName = cleanText(input.productName);
+  const goal = cleanText(input.goal);
+  const task = cleanText(input.progress?.task ?? input.state?.currentTask);
+  const progressSummary = cleanText(input.progress?.summary);
+  const stateSummary = cleanText(input.state?.summary);
+  const auditSummary = cleanText(input.auditSummary);
+  const hasAnyRecord = Boolean(productName || goal || task || input.progress || input.state);
+  const status = reportStatus(input, hasAnyRecord);
+  const subject = productName ? `「${productName}」` : "当前产品";
+  const summary =
+    status === "empty"
+      ? "还没有找到可汇报的产品。建议先安全试用，或者从一个常见产品模板开始。"
+      : status === "needs-attention"
+        ? `${subject}有一项需要处理的情况，建议先看影响，再继续修改或撤回。`
+        : status === "ready"
+          ? `${subject}已有可验收结果，建议先打开页面或按清单验收。`
+          : `${subject}正在推进中，可以先看当前重点，再决定继续、验收或调整。`;
+  const focus =
+    status === "empty"
+      ? "先确定要做哪个业务产品，让 ccli 生成一个可以看的首版。"
+      : progressSummary ?? stateSummary ?? auditSummary ?? goal ?? task ?? "先打开当前结果，看是否符合业务目标。";
+
+  return {
+    title: "老板交付卡",
+    summary,
+    productName,
+    goal,
+    status,
+    focus,
+    proof: reportProof({
+      productName,
+      goal,
+      task,
+      progress: input.progress,
+      state: input.state,
+      canPreview: input.canPreview,
+      auditSummary
+    }),
+    actions: (input.nextActions?.length ? input.nextActions : defaultReportActions(status, Boolean(input.canPreview))).slice(0, 5),
+    ask: status === "empty" ? "不知道怎么开始，就直接说：试用一下。" : "不确定下一步，就直接说：下一步怎么办。"
+  };
+}
+
+export function renderBossReportCard(card: BossReportCard): string {
+  const lines = [card.title, "", card.summary];
+  if (card.productName) {
+    lines.push(`产品：${card.productName}`);
+  }
+  if (card.goal) {
+    lines.push(`目标：${card.goal}`);
+  }
+  lines.push(`当前重点：${card.focus}`);
+
+  if (card.proof.length) {
+    lines.push("", "看得见的依据：");
+    for (const [index, item] of card.proof.entries()) {
+      lines.push(`${index + 1}. ${item}`);
+    }
+  }
+
+  if (card.actions.length) {
+    lines.push("", "可以直接说：");
+    for (const [index, action] of card.actions.entries()) {
+      lines.push(`${index + 1}. ${action.title}`);
+      lines.push(`原因：${action.reason}`);
+      lines.push(`直接说：${action.say}`);
+    }
+  }
+
+  lines.push("", card.ask);
+  return lines.join("\n").trim();
+}
+
 export function createExperienceEvent(input: Omit<ExperienceEvent, "surface"> & { surface?: InteractionSurface }): ExperienceEvent {
   return {
     surface: input.surface ?? "terminal",
@@ -692,6 +788,7 @@ export function hardwareManifest() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "report-card",
       "acceptance-guide",
       "revision-request",
       "delivery-confirmation",
@@ -701,7 +798,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "resume", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -742,6 +839,7 @@ export function hardwareSchema() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "report-card",
       "next-action",
       "idea-catalog",
       "project-catalog",
@@ -849,6 +947,32 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "resume-guide" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "当前产品已有可验收结果，建议先打开页面或按清单验收。",
+        screen: "老板交付卡\n\n当前产品已有可验收结果，建议先打开页面或按清单验收。\n产品：客户跟进系统\n目标：记录客户、跟进和提醒\n当前重点：首版页面已生成，可以先看是否一眼能懂。\n\n可以直接说：\n1. 打开当前产品\n直接说：打开当前产品页面\n2. 按清单验收\n直接说：怎么验收当前产品",
+        choices: ["打开当前产品", "按清单验收", "我想改一下"],
+        actions: [
+          {
+            id: "preview-current",
+            label: "打开当前产品",
+            kind: "utterance",
+            say: "打开当前产品页面",
+            requiresConfirmation: false
+          },
+          {
+            id: "accept-current",
+            label: "按清单验收",
+            kind: "utterance",
+            say: "怎么验收当前产品",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "report-card" }
     ),
     createHardwareResponse(
       createExperienceEvent({
@@ -978,6 +1102,121 @@ export function hardwareExamples() {
       { kind: "control-cancelled" }
     )
   ];
+}
+
+function reportStatus(input: {
+  progress?: ResumeProgressSnapshot;
+  state?: ResumeStateSnapshot;
+  canPreview?: boolean;
+}, hasAnyRecord: boolean): BossReportStatus {
+  if (!hasAnyRecord) {
+    return "empty";
+  }
+  if (input.state?.status === "failed" || input.progress?.validation === "failed") {
+    return "needs-attention";
+  }
+  if (input.state?.status === "done" || input.progress?.validation === "passed" || input.canPreview) {
+    return "ready";
+  }
+  return "in-progress";
+}
+
+function reportProof(input: {
+  productName?: string;
+  goal?: string;
+  task?: string;
+  progress?: ResumeProgressSnapshot;
+  state?: ResumeStateSnapshot;
+  canPreview?: boolean;
+  auditSummary?: string;
+}): string[] {
+  const proof = [
+    input.productName ? `已识别当前产品：${input.productName}` : undefined,
+    input.goal ? `已记录业务目标：${input.goal}` : undefined,
+    input.task ? `最近任务：${input.task}` : undefined,
+    input.progress?.updatedAt ? `最近记录时间：${formatDisplayDate(input.progress.updatedAt)}` : undefined,
+    input.canPreview === true ? "已有本地页面可以打开验收。" : undefined,
+    input.state?.status === "done" || input.progress?.validation === "passed" ? "最近一次处理已有可检查结果。" : undefined,
+    input.state?.status === "failed" || input.progress?.validation === "failed" ? "最近一次处理没有顺利完成，需要先处理影响。" : undefined,
+    input.auditSummary ? `后台已保留处理记录：${input.auditSummary}` : undefined
+  ];
+  return proof.filter((item): item is string => Boolean(item)).slice(0, 5);
+}
+
+function defaultReportActions(status: BossReportStatus, canPreview: boolean): NextAction[] {
+  if (status === "empty") {
+    return [
+      {
+        id: "try-demo",
+        title: "先安全试用一遍",
+        reason: "不用模型授权，也不改当前目录，先看到一套演示产品。",
+        say: "试用一下"
+      },
+      {
+        id: "starter-ideas",
+        title: "从模板直接开工",
+        reason: "选一个常见场景最快能看到首版。",
+        say: "给我几个产品模板"
+      },
+      {
+        id: "home",
+        title: "回到开箱首页",
+        reason: "先看当前状态和最建议动作。",
+        say: "打开开箱首页"
+      }
+    ];
+  }
+
+  const actions: NextAction[] = [];
+  if (canPreview) {
+    actions.push({
+      id: "preview-current",
+      title: "打开当前产品",
+      reason: "先看真实页面，最容易判断是否满意。",
+      say: "打开当前产品页面"
+    });
+  }
+  actions.push({
+    id: "accept-current",
+    title: "按清单验收",
+    reason: "用老板能看懂的标准判断是否满意。",
+    say: "怎么验收当前产品"
+  });
+  if (status === "needs-attention") {
+    actions.push({
+      id: "status",
+      title: "先看影响",
+      reason: "最近一次处理没有顺利完成，先看中文影响再决定。",
+      say: "查看当前任务进度"
+    });
+  }
+  actions.push({
+    id: "revise-current",
+    title: "继续修改",
+    reason: "不满意可以直接说具体要改哪里。",
+    say: "我想改一下：首页重点不够明显"
+  });
+  actions.push({
+    id: "undo-current",
+    title: "撤回上次成果",
+    reason: "如果最近一次改动方向错了，可以撤回最近保存的成果。",
+    say: "撤回上次改动"
+  });
+  if (status === "ready") {
+    actions.push({
+      id: "finish-current",
+      title: "准备交付",
+      reason: "如果已经满意，可以进入审查和交付。",
+      say: "我满意，准备交付"
+    });
+  }
+  actions.push({
+    id: "next",
+    title: "让系统给下一步",
+    reason: "如果还没判断好，先让 ccli 根据当前状态推荐。",
+    say: "下一步怎么办"
+  });
+  return actions;
 }
 
 function firstCheckFromGoal(goal?: string): string | undefined {
