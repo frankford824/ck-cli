@@ -203,6 +203,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("revision-request");
     expect(hardwareManifest().output).toContain("delivery-confirmation");
     expect(hardwareManifest().output).toContain("try-demo");
+    expect(hardwareManifest().output).toContain("undo-confirmation");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");
@@ -223,12 +224,14 @@ describe("experience", () => {
     expect(schema.kinds).toContain("revision-request");
     expect(schema.kinds).toContain("delivery-confirmation");
     expect(schema.kinds).toContain("try-demo");
+    expect(schema.kinds).toContain("undo-confirmation");
     expect(schema.response.event.actions[0].requiresConfirmation).toContain("必须确认");
     expect(examples.some((example) => example.data?.kind === "boss-home")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "setup-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "resume-guide")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "action-confirmed")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "try-demo")).toBe(true);
+    expect(examples.some((example) => example.data?.kind === "undo-confirmation")).toBe(true);
     expect(examples.some((example) => example.data?.kind === "control-cancelled")).toBe(true);
     expect(examples.some((example) => example.event.actions?.some((action) => action.requiresConfirmation))).toBe(true);
   });

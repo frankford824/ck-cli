@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTemplateProject, FileTool, GitHubTool, ProjectTool, runShell } from "../src/index.js";
+import { createTemplateProject, FileTool, GitHubTool, GitTool, ProjectTool, runShell } from "../src/index.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -62,6 +62,29 @@ describe("tools", () => {
       });
       expect(result.exitCode).toBe(0);
       expect(chunks.join("")).toContain("progress-ready");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reverts the last commit without rewriting history", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-git-revert-"));
+    try {
+      const git = new GitTool();
+      await runShell("git init -b main", cwd, 30_000);
+      await writeFile(join(cwd, "note.txt"), "first\n", "utf8");
+      await git.commitAll("first", { cwd, confirmed: true });
+      await writeFile(join(cwd, "note.txt"), "second\n", "utf8");
+      await git.commitAll("second", { cwd, confirmed: true });
+
+      const result = await git.revertLastCommit({ cwd, confirmed: true });
+
+      expect(result.reverted).toBe(true);
+      expect(result.commit?.message).toBe("second");
+      await expect(readFile(join(cwd, "note.txt"), "utf8")).resolves.toBe("first\n");
+      const log = await runShell("git log --oneline --max-count=3", cwd, 30_000);
+      expect(log.stdout).toContain("Revert");
+      expect(log.stdout).toContain("second");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

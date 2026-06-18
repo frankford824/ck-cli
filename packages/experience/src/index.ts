@@ -696,6 +696,7 @@ export function hardwareManifest() {
       "revision-request",
       "delivery-confirmation",
       "try-demo",
+      "undo-confirmation",
       "project-catalog",
       "idea-catalog",
       "next-action"
@@ -750,6 +751,7 @@ export function hardwareSchema() {
       "revision-request",
       "delivery-confirmation",
       "try-demo",
+      "undo-confirmation",
       "create-product",
       "health-check",
       "fallback"
@@ -921,6 +923,33 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "try-demo" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "asking",
+        say: "可以撤回上次保存的成果。这个动作会改变当前产品，需要确认。",
+        screen: "撤回上次成果\n确认后会撤回上次保存的成果，并生成一条新的保存记录。",
+        choices: ["确认撤回上次成果", "先看验收清单", "先不撤回"],
+        actions: [
+          {
+            id: "confirm-undo",
+            label: "确认撤回上次成果",
+            kind: "command",
+            command: "ccli undo --yes",
+            description: "会撤回上次保存的成果，并生成一条新的保存记录。",
+            requiresConfirmation: true
+          },
+          {
+            id: "acceptance",
+            label: "先看验收清单",
+            kind: "utterance",
+            say: "怎么验收当前产品",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "undo-confirmation" }
     ),
     createHardwareResponse(
       createExperienceEvent({
