@@ -10,6 +10,7 @@ describe("experience", () => {
     expect(text).toContain("ccli go");
     expect(text).toContain("ccli projects");
     expect(text).toContain("ccli open");
+    expect(text).toContain("打开我上次做的系统");
     expect(text).toContain("ccli create");
     expect(text).toContain("ccli preview");
     expect(text).toContain("ccli chat");
@@ -30,5 +31,6 @@ describe("experience", () => {
 
     expect(speechText(event)).toBe("已完成");
     expect(hardwareManifest().output).toContain("speech");
+    expect(hardwareManifest().output).toContain("project-catalog");
   });
 });

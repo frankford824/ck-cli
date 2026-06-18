@@ -51,6 +51,11 @@ program
         return;
       }
 
+      const routed = await runNaturalLanguageIntent({ request, cwd, expert, yes, renderer });
+      if (routed) {
+        return;
+      }
+
       await runRequirement({ cwd, expert, yes, requirement: request });
       print(renderer.render({ type: "done", message: "这次需求已处理完成。", severity: "success" }));
     });
@@ -191,7 +196,10 @@ program
             print(renderer.render({ type: "done", message: "对话已结束。", severity: "success" }));
             return;
           }
-          await runRequirement({ cwd, expert, yes, requirement: answer });
+          const routed = await runNaturalLanguageIntent({ request: answer, cwd, expert, yes, renderer });
+          if (!routed) {
+            await runRequirement({ cwd, expert, yes, requirement: answer });
+          }
         }
       } finally {
         rl.close();
@@ -261,23 +269,7 @@ program
   .option("--json", "输出给硬件或自动化使用的结构化结果")
   .action(async (options: { json?: boolean }) => {
     await withCli(async ({ renderer, expert }) => {
-      const projects = await readProjectRegistry();
-      if (options.json) {
-        print(JSON.stringify(projects.map((project, index) => projectSummary(project, index)), null, 2));
-        return;
-      }
-      if (!projects.length) {
-        print(renderer.render({ type: "info", message: "还没有保存过产品。可以先用 ccli go 说出想做的产品。" }));
-        return;
-      }
-      print(renderer.render({ type: "info", message: `已找到 ${projects.length} 个产品。` }));
-      for (const [index, project] of projects.entries()) {
-        const recent = project.lastOpenedAt ? `最近打开：${formatShortDate(project.lastOpenedAt)}` : `创建时间：${formatShortDate(project.createdAt)}`;
-        print(`${index + 1}. ${project.name}。${recent}`);
-        if (expert) {
-          print(`   ${project.path}`);
-        }
-      }
+      await renderKnownProjects({ renderer, expert, json: Boolean(options.json) });
     });
   });
 
@@ -292,44 +284,14 @@ program
   .option("--no-open", "启动预览但不自动打开浏览器")
   .action(async (projectKey: string | undefined, options: { install?: boolean; host?: string; port?: string; check?: boolean; open?: boolean }) => {
     await withCli(async ({ renderer, yes }) => {
-      const projects = await readProjectRegistry();
-      if (!projects.length) {
-        print(renderer.render({ type: "info", message: "还没有保存过产品。可以先用 ccli go 创建一个。" }));
-        return;
-      }
-      const project = resolveProjectSelection(projects, projectKey);
-      if (!project) {
-        print(renderer.render({ type: "risk", message: "没有找到这个产品。可以先查看产品列表。", severity: "warning" }));
-        return;
-      }
-      const port = Number(options.port ?? "5173");
-      if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        print(renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
-        return;
-      }
-      const readiness = await previewReadiness(project.path);
-      if (!readiness.canPreview) {
-        print(renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
-        return;
-      }
-      if (!readiness.hasDependencies) {
-        if (!options.install) {
-          print(renderer.render({ type: "risk", message: "这个产品还没有准备好本地运行内容。你可以让 ccli 自动准备后再打开。", severity: "warning" }));
-          return;
-        }
-        await ensureDependenciesForPreview({ cwd: project.path, renderer, yes });
-      }
-      await touchProjectRegistry(project.id);
-      if (options.check) {
-        print(renderer.render({ type: "done", message: `${project.name} 已经可以打开。`, severity: "success" }));
-        return;
-      }
-      print(renderer.render({ type: "info", message: `正在打开 ${project.name}。` }));
-      await startPreviewServer({
-        cwd: project.path,
+      await openKnownProject({
+        projectKey,
         renderer,
+        yes,
+        install: Boolean(options.install),
+        check: Boolean(options.check),
         host: options.host ?? "127.0.0.1",
-        port,
+        portText: options.port ?? "5173",
         openBrowser: options.open !== false
       });
     });
@@ -388,7 +350,7 @@ program
       if (expert) {
         print(JSON.stringify(hardwareManifest(), null, 2));
       } else {
-        print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示和选项。");
+        print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示、选项和产品清单。");
       }
     });
   });
@@ -768,6 +730,167 @@ function redactConfig(configValue: CcliConfig): CcliConfig {
       ])
     )
   };
+}
+
+async function runNaturalLanguageIntent(inputValue: {
+  request: string;
+  cwd: string;
+  expert: boolean;
+  yes: boolean;
+  renderer: ProductRenderer;
+}): Promise<boolean> {
+  const request = inputValue.request.trim();
+  if (isProjectListRequest(request)) {
+    await renderKnownProjects({ renderer: inputValue.renderer, expert: inputValue.expert, json: false });
+    return true;
+  }
+
+  if (isProjectOpenCheckRequest(request)) {
+    await openKnownProject({
+      projectKey: projectKeyFromNaturalRequest(request),
+      renderer: inputValue.renderer,
+      yes: inputValue.yes,
+      install: true,
+      check: true,
+      host: "127.0.0.1",
+      portText: "5173",
+      openBrowser: false
+    });
+    return true;
+  }
+
+  if (isProjectOpenRequest(request)) {
+    await openKnownProject({
+      projectKey: projectKeyFromNaturalRequest(request),
+      renderer: inputValue.renderer,
+      yes: inputValue.yes,
+      install: true,
+      check: false,
+      host: "127.0.0.1",
+      portText: "5173",
+      openBrowser: true
+    });
+    return true;
+  }
+
+  if (isProductCreationRequest(request)) {
+    print(inputValue.renderer.render({ type: "info", message: "已识别为新产品目标，开始一键生成并打开预览。" }));
+    await createProductFromIdea({
+      cwd: inputValue.cwd,
+      idea: request,
+      install: false,
+      preview: true,
+      previewAutoInstall: true,
+      previewOpenBrowser: true,
+      previewHost: "127.0.0.1",
+      previewPort: 5173,
+      withPr: false,
+      expert: inputValue.expert,
+      yes: inputValue.yes,
+      renderer: inputValue.renderer
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function renderKnownProjects(inputValue: { renderer: ProductRenderer; expert: boolean; json: boolean }): Promise<void> {
+  const projects = await readProjectRegistry();
+  if (inputValue.json) {
+    print(JSON.stringify(projects.map((project, index) => projectSummary(project, index)), null, 2));
+    return;
+  }
+  if (!projects.length) {
+    print(inputValue.renderer.render({ type: "info", message: "还没有保存过产品。可以先直接说想做什么产品。" }));
+    return;
+  }
+  print(inputValue.renderer.render({ type: "info", message: `已找到 ${projects.length} 个产品。` }));
+  for (const [index, project] of projects.entries()) {
+    const recent = project.lastOpenedAt ? `最近打开：${formatShortDate(project.lastOpenedAt)}` : `创建时间：${formatShortDate(project.createdAt)}`;
+    print(`${index + 1}. ${project.name}。${recent}`);
+    if (inputValue.expert) {
+      print(`   ${project.path}`);
+    }
+  }
+}
+
+async function openKnownProject(inputValue: {
+  projectKey?: string;
+  renderer: ProductRenderer;
+  yes: boolean;
+  install: boolean;
+  check: boolean;
+  host: string;
+  portText: string;
+  openBrowser: boolean;
+}): Promise<void> {
+  const projects = await readProjectRegistry();
+  if (!projects.length) {
+    print(inputValue.renderer.render({ type: "info", message: "还没有保存过产品。可以先直接说想做什么产品。" }));
+    return;
+  }
+  const project = resolveProjectSelection(projects, inputValue.projectKey);
+  if (!project) {
+    print(inputValue.renderer.render({ type: "risk", message: "没有找到这个产品。可以先查看产品列表。", severity: "warning" }));
+    return;
+  }
+  const port = Number(inputValue.portText);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    print(inputValue.renderer.render({ type: "risk", message: "预览端口不正确，请换一个 1 到 65535 之间的数字。", severity: "warning" }));
+    return;
+  }
+  const readiness = await previewReadiness(project.path);
+  if (!readiness.canPreview) {
+    print(inputValue.renderer.render({ type: "risk", message: readiness.message, severity: "warning" }));
+    return;
+  }
+  if (!readiness.hasDependencies) {
+    if (!inputValue.install) {
+      print(inputValue.renderer.render({ type: "risk", message: "这个产品还没有准备好本地运行内容。你可以让 ccli 自动准备后再打开。", severity: "warning" }));
+      return;
+    }
+    await ensureDependenciesForPreview({ cwd: project.path, renderer: inputValue.renderer, yes: inputValue.yes });
+  }
+  await touchProjectRegistry(project.id);
+  if (inputValue.check) {
+    print(inputValue.renderer.render({ type: "done", message: `${project.name} 已经可以打开。`, severity: "success" }));
+    return;
+  }
+  print(inputValue.renderer.render({ type: "info", message: `正在打开 ${project.name}。` }));
+  await startPreviewServer({
+    cwd: project.path,
+    renderer: inputValue.renderer,
+    host: inputValue.host,
+    port,
+    openBrowser: inputValue.openBrowser
+  });
+}
+
+function isProjectListRequest(request: string): boolean {
+  return /(?:查看|看看|列出|显示|管理).*(?:我的)?(?:产品|项目|应用|系统|列表)/.test(request) || /我的(?:产品|项目|应用|系统)/.test(request);
+}
+
+function isProjectOpenRequest(request: string): boolean {
+  return /(?:打开|启动|预览|继续|看看).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request);
+}
+
+function isProjectOpenCheckRequest(request: string): boolean {
+  return /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request);
+}
+
+function isProductCreationRequest(request: string): boolean {
+  return /(?:一键)?(?:做一个|做个|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个)/.test(request) &&
+    /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|客户|订单|库存|页面|小程序|CRM|crm)/.test(request);
+}
+
+function projectKeyFromNaturalRequest(request: string): string | undefined {
+  const key = request
+    .replace(/^(?:请|帮我|我要|我想|想要)?(?:打开|启动|预览|继续|看看|检查|确认)/, "")
+    .replace(/(?:我)?(?:上次|最近|之前|刚才|最后)(?:做的|创建的)?/g, "")
+    .replace(/(?:能不能|能否|是否|可以|打开|启动|预览|检查|确认|我的|这个|那个|一下|吧|产品|项目|应用|系统|页面)/g, "")
+    .trim();
+  return key.length >= 2 ? key : undefined;
 }
 
 interface PreviewReadiness {
