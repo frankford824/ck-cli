@@ -38,6 +38,14 @@ export interface WelcomeCard {
   examples: string[];
 }
 
+export interface InstallSuccessCard {
+  title: string;
+  summary: string;
+  primarySay: string;
+  nextSays: string[];
+  fallbackSay: string;
+}
+
 export interface StarterIdea {
   id: string;
   title: string;
@@ -281,6 +289,37 @@ export function renderWelcome(card: WelcomeCard = welcomeCard()): string {
     "",
     "你可以直接描述目标，例如：",
     ...card.examples.map((example) => `- ${example}`)
+  ].join("\n");
+}
+
+export function installSuccessCard(): InstallSuccessCard {
+  return {
+    title: "安装完成",
+    summary: "ccli 已经准备好。你不用学习开发流程，直接用中文说想要的产品结果就可以开始。",
+    primarySay: "打开开箱首页",
+    nextSays: [
+      "一步步问我，然后开工",
+      "试用一下",
+      "做一个客户管理系统，能记录跟进和提醒",
+      "给我几个产品模板",
+      "下一步怎么办"
+    ],
+    fallbackSay: "如果系统还找不到 ccli，请先关闭并重新打开终端，再输入 ccli。"
+  };
+}
+
+export function renderInstallSuccess(card: InstallSuccessCard = installSuccessCard()): string {
+  return [
+    card.title,
+    "",
+    card.summary,
+    "",
+    `现在直接说：${card.primarySay}`,
+    "",
+    "也可以说：",
+    ...card.nextSays.map((say) => `- ${say}`),
+    "",
+    card.fallbackSay
   ].join("\n");
 }
 

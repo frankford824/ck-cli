@@ -88,6 +88,15 @@ function Write-Shim {
   "@echo off`r`nnode `"$CliPath`" %*`r`n" | Set-Content -Encoding ASCII -Path $CmdPath
 }
 
+function Show-SuccessCard {
+  $CliPath = Join-Path $InstallDir "apps\cli\dist\index.js"
+  try {
+    node $CliPath installed
+  } catch {
+    Write-Step "安装完成。现在可以直接输入 ccli 打开开箱首页。"
+  }
+}
+
 Require-Command "git"
 Test-NodeVersion
 Ensure-Pnpm
@@ -95,13 +104,13 @@ Checkout-Repo
 Build-Cli
 Write-Shim
 
-Write-Step "ccli 已安装到 $InstallDir"
-Write-Step "启动器已写入 $BinDir\ccli.cmd"
+Write-Step ""
+Show-SuccessCard
 
 $PathParts = ($env:PATH -split ";") | Where-Object { $_ }
 if ($PathParts -notcontains $BinDir) {
-  Write-Step "提示：$BinDir 当前不在 PATH 中。可以执行："
+  Write-Step ""
+  Write-Step "还差一步：当前终端还找不到 ccli。可以执行："
   Write-Step "[Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$BinDir', 'User')"
+  Write-Step "然后重新打开终端，输入：ccli"
 }
-
-Write-Step "验证命令：ccli --help"

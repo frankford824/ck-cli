@@ -15,6 +15,7 @@ import {
   hardwareManifest,
   hardwareSchema,
   healthSummary,
+  installSuccessCard,
   renderAcceptanceGuide,
   renderBossApprovalReceipt,
   renderBossBrief,
@@ -22,6 +23,7 @@ import {
   renderBossQuestionCard,
   renderBossReportCard,
   renderNextActions,
+  renderInstallSuccess,
   renderResumeGuide,
   renderSetupGuide,
   renderStarterIdeas,
@@ -63,6 +65,23 @@ describe("experience", () => {
     expect(text).toContain("做第 3 个模板");
     expect(text).not.toMatch(/\bccli\s+[a-z]/i);
     expect(text).not.toContain("diff");
+  });
+
+  it("renders a post-install open-box card without technical setup copy", () => {
+    const card = installSuccessCard();
+    const text = renderInstallSuccess(card);
+    const publicData = JSON.stringify(toPublicExperienceData(card));
+
+    expect(text).toContain("安装完成");
+    expect(text).toContain("现在直接说：打开开箱首页");
+    expect(text).toContain("一步步问我，然后开工");
+    expect(text).toContain("试用一下");
+    expect(text).toContain("下一步怎么办");
+    expect(text).not.toMatch(/\bccli\s+[a-z]/i);
+    expect(text).not.toContain("/tmp/");
+    expect(text).not.toContain("```");
+    expect(publicData).not.toContain("\"command\"");
+    expect(publicData).not.toContain("\"path\"");
   });
 
   it("renders starter ideas for boss users", () => {

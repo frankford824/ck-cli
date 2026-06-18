@@ -24,6 +24,7 @@ import {
   hardwareManifest,
   hardwareSchema,
   healthSummary,
+  installSuccessCard,
   renderAcceptanceGuide,
   renderBossApprovalReceipt,
   renderBossBrief,
@@ -31,6 +32,7 @@ import {
   renderBossQuestionCard,
   renderBossReportCard,
   renderHealthReport,
+  renderInstallSuccess,
   renderNextActions,
   renderResumeGuide,
   renderSetupGuide,
@@ -384,6 +386,19 @@ program
       const report = healthSummary(await checkHealth(cwd));
       print(renderHealthReport(report, expert));
     });
+  });
+
+program
+  .command("installed")
+  .description("显示安装完成后的中文开箱卡")
+  .option("--json", "输出给安装器或硬件使用的结构化结果")
+  .action(async (options: { json?: boolean }) => {
+    const card = installSuccessCard();
+    if (options.json) {
+      printPublicJson(card);
+      return;
+    }
+    print(renderInstallSuccess(card));
   });
 
 program
