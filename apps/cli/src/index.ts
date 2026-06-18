@@ -4466,7 +4466,7 @@ async function readProjectRegistry(): Promise<KnownProject[]> {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return sortProjects(parsed.filter(isKnownProject));
+    return sortProjects(parsed.filter(isKnownProject).filter(projectExists));
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       return [];
@@ -4558,6 +4558,10 @@ function isKnownProject(value: unknown): value is KnownProject {
   }
   const project = value as Partial<KnownProject>;
   return Boolean(project.id && project.name && project.path && project.createdAt && project.updatedAt);
+}
+
+function projectExists(project: KnownProject): boolean {
+  return existsSync(project.path);
 }
 
 function projectRegistryPath(): string {
