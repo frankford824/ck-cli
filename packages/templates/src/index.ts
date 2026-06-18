@@ -690,6 +690,7 @@ dist/
 .ccli/state.json
 .ccli/progress.json
 .ccli/hardware-pending-action.json
+.ccli/approval.json
 .ccli/memory.jsonl
 `
   };

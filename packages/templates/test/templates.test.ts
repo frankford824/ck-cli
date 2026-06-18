@@ -27,6 +27,7 @@ describe("webTemplateFiles", () => {
     expect(files[".ccli/skills/frontend-design.md"]).toContain("前端设计技能");
     expect(files[".gitignore"]).toContain(".ccli/progress.json");
     expect(files[".gitignore"]).toContain(".ccli/hardware-pending-action.json");
+    expect(files[".gitignore"]).toContain(".ccli/approval.json");
   });
 
   it("installs reusable harness skills without overwriting local edits", async () => {
