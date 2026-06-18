@@ -1186,6 +1186,7 @@ export function hardwareManifest() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "boss-wizard",
       "question-card",
       "brief-card",
       "approval-receipt",
@@ -1199,7 +1200,7 @@ export function hardwareManifest() {
       "idea-catalog",
       "next-action"
     ],
-    events: ["welcome", "home", "setup", "resume", "question", "brief", "approval", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
+    events: ["welcome", "home", "setup", "resume", "wizard", "question", "brief", "approval", "report", "confirm", "help", "cancel", "acceptance", "revision", "delivery", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };
 }
@@ -1240,6 +1241,7 @@ export function hardwareSchema() {
       "confirmation-empty",
       "control-help",
       "control-cancelled",
+      "boss-wizard",
       "question-card",
       "brief-card",
       "approval-receipt",
