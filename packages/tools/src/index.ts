@@ -191,9 +191,25 @@ export class GitTool {
   }
 
   async defaultBaseBranch(cwd: string): Promise<string> {
-    const result = await runShell("git remote show origin", cwd, 30_000).catch(() => undefined);
-    const match = result?.stdout.match(/HEAD branch:\s+(.+)/);
-    return match?.[1]?.trim() || "main";
+    const symbolic = await runShell("git symbolic-ref --short refs/remotes/origin/HEAD", cwd, 30_000).catch(
+      () => undefined
+    );
+    const branch = symbolic?.stdout.trim().replace(/^origin\//, "");
+    if (branch) {
+      return branch;
+    }
+
+    const main = await runShell("git rev-parse --verify origin/main", cwd, 30_000).catch(() => undefined);
+    if (main?.exitCode === 0) {
+      return "main";
+    }
+
+    const master = await runShell("git rev-parse --verify origin/master", cwd, 30_000).catch(() => undefined);
+    if (master?.exitCode === 0) {
+      return "master";
+    }
+
+    return "main";
   }
 
   private async branchExists(branch: string, cwd: string): Promise<boolean> {
