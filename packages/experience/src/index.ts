@@ -1288,6 +1288,7 @@ export function hardwareManifest() {
       "boss-home",
       "setup-guide",
       "resume-guide",
+      "action-started",
       "action-confirmed",
       "confirmation-empty",
       "control-help",
@@ -1342,6 +1343,7 @@ export function hardwareSchema() {
       "boss-home",
       "setup-guide",
       "resume-guide",
+      "action-started",
       "action-confirmed",
       "confirmation-empty",
       "control-help",
@@ -1618,6 +1620,32 @@ export function hardwareExamples() {
         ]
       }),
       { kind: "action-confirmed" }
+    ),
+    createHardwareResponse(
+      createExperienceEvent({
+        surface: "hardware",
+        tone: "success",
+        say: "已确认，正在开始：确认交付并合并。",
+        screen: "已确认\n正在开始：确认交付并合并\n完成后可以说：给我一个进度汇报。",
+        choices: ["查看进度汇报", "下一步怎么办"],
+        actions: [
+          {
+            id: "report",
+            label: "查看进度汇报",
+            kind: "utterance",
+            say: "给我一个进度汇报",
+            requiresConfirmation: false
+          },
+          {
+            id: "next",
+            label: "下一步怎么办",
+            kind: "utterance",
+            say: "下一步怎么办",
+            requiresConfirmation: false
+          }
+        ]
+      }),
+      { kind: "action-started" }
     ),
     createHardwareResponse(
       createExperienceEvent({

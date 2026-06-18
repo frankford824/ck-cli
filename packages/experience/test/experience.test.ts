@@ -370,6 +370,7 @@ describe("experience", () => {
     expect(hardwareManifest().output).toContain("boss-home");
     expect(hardwareManifest().output).toContain("setup-guide");
     expect(hardwareManifest().output).toContain("resume-guide");
+    expect(hardwareManifest().output).toContain("action-started");
     expect(hardwareManifest().output).toContain("action-confirmed");
     expect(hardwareManifest().output).toContain("confirmation-empty");
     expect(hardwareManifest().output).toContain("control-help");
@@ -469,6 +470,7 @@ describe("experience", () => {
     expect(schema.kinds).toContain("boss-home");
     expect(schema.kinds).toContain("setup-guide");
     expect(schema.kinds).toContain("resume-guide");
+    expect(schema.kinds).toContain("action-started");
     expect(schema.kinds).toContain("action-confirmed");
     expect(schema.kinds).toContain("confirmation-empty");
     expect(schema.kinds).toContain("control-help");
@@ -502,6 +504,10 @@ describe("experience", () => {
     expect(examples.some((example) => exampleKind(example.data) === "brief-card")).toBe(true);
     expect(examples.some((example) => exampleKind(example.data) === "approval-receipt")).toBe(true);
     expect(examples.some((example) => exampleKind(example.data) === "report-card")).toBe(true);
+    expect(examples.some((example) => exampleKind(example.data) === "action-started")).toBe(true);
+    const started = examples.find((example) => exampleKind(example.data) === "action-started");
+    expect(started?.event.screen).toContain("正在开始");
+    expect(started?.event.actions?.some((action) => action.say === "给我一个进度汇报")).toBe(true);
     expect(examples.some((example) => exampleKind(example.data) === "action-confirmed")).toBe(true);
     const confirmed = examples.find((example) => exampleKind(example.data) === "action-confirmed");
     expect(confirmed?.event.screen).toContain("可以继续完成这一步");

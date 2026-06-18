@@ -642,7 +642,7 @@ ccli harness --expert
 - 协议示例，可用 `ccli hardware --examples` 读取
 - 语音桥接响应，可用 `ccli hardware "下一步怎么办" --json` 读取
 - 控制口令，可用 `ccli hardware "取消" --json` 或 `ccli hardware "帮助" --json` 读取
-- 二次确认口令，可在高影响动作后继续调用 `ccli hardware "确认" --json` 读取 `action-confirmed`
+- 二次确认口令，可在高影响动作后继续调用 `ccli hardware "确认" --json`，确认后会返回 `action-started` 或 `action-confirmed`
 
 协议不暴露代码、命令、路径和堆栈；硬件按钮只需要把 `say` 里的中文说法作为下一句输入回传，保证用户体验保持普通中文产品语义。老板和硬件可读的 `--json` 输出都会走公开净化层，不返回后台命令。
 
