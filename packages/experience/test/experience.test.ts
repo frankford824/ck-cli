@@ -551,10 +551,12 @@ describe("experience", () => {
     expect(JSON.stringify(examples)).not.toContain("\"command\"");
     expect(examples.every((example) => example.event.actions?.every((action) => action.kind === "utterance") ?? true)).toBe(true);
     const bootHome = examples.find((example) => exampleKind(example.data) === "boss-home");
-    expect(bootHome?.event.say).toContain("开工向导");
-    expect(bootHome?.event.screen).toContain("补齐驾驭支架");
+    expect(bootHome?.event.say).toContain("直接说一个业务目标");
+    expect(bootHome?.event.screen).toContain("直接说一个业务目标");
+    expect(bootHome?.event.actions?.[0]?.label).toBe("直接一句话开工");
+    expect(bootHome?.event.actions?.[0]?.say).toBe("做一个客户跟进系统，能记录客户、跟进和提醒");
     expect(bootHome?.event.actions?.some((action) => action.label === "先问清楚业务目标")).toBe(true);
-    expect(bootHome?.event.actions?.some((action) => action.say === "补齐驾驭系统")).toBe(true);
+    expect(bootHome?.event.actions?.some((action) => action.say === "补齐驾驭系统")).toBe(false);
     expect(bootHome?.event.actions?.some((action) => action.kind === "command")).toBe(false);
     expect(examples.some((example) => exampleKind(example.data) === "setup-guide")).toBe(true);
     expect(examples.some((example) => exampleKind(example.data) === "resume-guide")).toBe(true);

@@ -1385,19 +1385,19 @@ export function hardwareSchema() {
 export function hardwareExamples() {
   const nextActions = [
     {
+      id: "one-shot-product",
+      label: "直接一句话开工",
+      kind: "utterance" as const,
+      say: "做一个客户跟进系统，能记录客户、跟进和提醒",
+      description: "不用先学命令或写需求文档，直接说业务目标生成首版。",
+      requiresConfirmation: false
+    },
+    {
       id: "boss-wizard",
       label: "先问清楚业务目标",
       kind: "utterance" as const,
       say: "一步步问我，然后开工",
       description: "先用中文问清目标用户、首屏重点和验收标准。",
-      requiresConfirmation: false
-    },
-    {
-      id: "harness-init",
-      label: "补齐驾驭支架",
-      kind: "utterance" as const,
-      say: "补齐驾驭系统",
-      description: "补好项目规则、权限护栏、验证反馈和进度记忆。",
       requiresConfirmation: false
     },
     {
@@ -1414,8 +1414,8 @@ export function hardwareExamples() {
       createExperienceEvent({
         surface: "hardware",
         tone: "asking",
-        say: "当前还没有产品，建议先用开工向导问清楚业务目标，再决定生成首版或安全试用。",
-        screen: "老板开箱驾驶舱\n当前还没有产品。\n建议先问清楚业务目标，也可以补齐驾驭支架或安全试用。",
+        say: "当前还没有产品，可以直接说一个业务目标生成首版；不确定时再用开工向导或安全试用。",
+        screen: "老板开箱驾驶舱\n当前还没有产品。\n建议直接说一个业务目标，也可以用开工向导或安全试用。",
         choices: nextActions.map((action) => action.label),
         actions: nextActions
       }),
