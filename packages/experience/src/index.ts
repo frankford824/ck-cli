@@ -2,12 +2,25 @@ export type InteractionSurface = "terminal" | "voice" | "hardware" | "remote";
 
 export type ExperienceTone = "calm" | "asking" | "success" | "warning" | "blocked";
 
+export type ExperienceActionKind = "utterance" | "command";
+
+export interface ExperienceAction {
+  id: string;
+  label: string;
+  kind: ExperienceActionKind;
+  say?: string;
+  command?: string;
+  description?: string;
+  requiresConfirmation?: boolean;
+}
+
 export interface ExperienceEvent {
   surface: InteractionSurface;
   tone: ExperienceTone;
   say: string;
   screen?: string;
   choices?: string[];
+  actions?: ExperienceAction[];
   audit?: unknown;
 }
 
@@ -219,6 +232,7 @@ export function createExperienceEvent(input: Omit<ExperienceEvent, "surface"> & 
     say: input.say,
     screen: input.screen ?? input.say,
     choices: input.choices,
+    actions: input.actions,
     audit: input.audit
   };
 }
@@ -241,7 +255,7 @@ export function hardwareManifest() {
     name: "ccli-experience-protocol",
     version: 1,
     input: ["text", "voice"],
-    output: ["speech", "screen", "choice", "project-catalog", "idea-catalog", "next-action"],
+    output: ["speech", "screen", "choice", "action-button", "project-catalog", "idea-catalog", "next-action"],
     events: ["welcome", "ask", "idea", "next", "progress", "risk", "success", "blocked"],
     invariant: "普通用户听到和看到的内容都必须是中文产品语义，不暴露代码、命令、路径或堆栈。"
   };

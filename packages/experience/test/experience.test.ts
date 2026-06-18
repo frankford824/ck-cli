@@ -63,13 +63,20 @@ describe("experience", () => {
   });
 
   it("keeps a future hardware protocol explicit", () => {
-    const event = createExperienceEvent({ tone: "success", say: "已完成", surface: "voice" });
+    const event = createExperienceEvent({
+      tone: "success",
+      say: "已完成",
+      surface: "voice",
+      actions: [{ id: "next", label: "下一步", kind: "utterance", say: "下一步怎么办" }]
+    });
     const response = createHardwareResponse(event, { ok: true });
 
     expect(speechText(event)).toBe("已完成");
     expect(response.protocol).toBe("ccli-experience-protocol");
     expect(response.event.say).toBe("已完成");
+    expect(response.event.actions?.[0]?.label).toBe("下一步");
     expect(hardwareManifest().output).toContain("speech");
+    expect(hardwareManifest().output).toContain("action-button");
     expect(hardwareManifest().output).toContain("project-catalog");
     expect(hardwareManifest().output).toContain("idea-catalog");
     expect(hardwareManifest().output).toContain("next-action");
