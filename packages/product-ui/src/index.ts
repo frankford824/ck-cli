@@ -57,7 +57,7 @@ const TECHNICAL_WORDS = /\b(diff|patch|stack trace|command|shell|stdout|stderr|c
 export function sanitizeForProduct(rawText: string): string {
   let text = rawText;
   for (const pattern of TECHNICAL_PATTERNS) {
-    text = text.replace(pattern, "（技术细节已记录）");
+    text = text.replace(pattern, "（细节已记录到审计日志）");
   }
   text = text.replace(/\s+/g, " ").trim();
 
@@ -70,7 +70,7 @@ export function sanitizeForProduct(rawText: string): string {
   const mostlyNonChinese = cjkCount / visibleCount < 0.25;
 
   if (mostlyNonChinese || TECHNICAL_WORDS.test(text)) {
-    return "我已处理模型返回的技术内容，并把细节记录到审计日志。";
+    return "我已把技术细节记录到审计日志，并保留了当前需要知道的结论。";
   }
 
   return text;

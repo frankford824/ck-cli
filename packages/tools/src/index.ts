@@ -297,7 +297,7 @@ export class GitHubTool {
 
     return {
       created: false,
-      message: "还不能自动创建团队审查入口。请先配置 GitHub Token，或登录 GitHub CLI。"
+      message: "还不能自动创建团队审查入口。请先完成代码托管平台授权。"
     };
   }
 
@@ -326,7 +326,7 @@ export class GitHubTool {
 
     return {
       posted: false,
-      message: "还不能自动发布审查摘要。请先配置 GitHub Token，或登录 GitHub CLI。"
+      message: "还不能自动发布审查摘要。请先完成代码托管平台授权。"
     };
   }
 
@@ -377,7 +377,7 @@ export class GitHubTool {
 
     return {
       merged: false,
-      message: "还不能自动合并。请先配置 GitHub Token，或登录 GitHub CLI。"
+      message: "还不能自动合并。请先完成代码托管平台授权。"
     };
   }
 }

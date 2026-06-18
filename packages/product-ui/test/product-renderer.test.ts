@@ -15,7 +15,7 @@ describe("ProductRenderer", () => {
     expect(output).not.toContain("git commit");
     expect(output).not.toContain("const x");
     expect(output).not.toContain("TypeError");
-    expect(output).toContain("技术细节");
+    expect(output).toContain("审计日志");
   });
 
   it("keeps ordinary Chinese product wording", () => {
