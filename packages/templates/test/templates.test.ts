@@ -1,5 +1,8 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { webTemplateFiles } from "../src/index.js";
+import { installHarnessSkills, webTemplateFiles } from "../src/index.js";
 
 describe("webTemplateFiles", () => {
   it("creates the expected Vite React files", () => {
@@ -16,5 +19,22 @@ describe("webTemplateFiles", () => {
     expect(files[".ccli/skills/office-hours.md"]).toContain("固定追问");
     expect(files[".ccli/skills/frontend-design.md"]).toContain("前端设计技能");
     expect(files[".gitignore"]).toContain(".ccli/progress.json");
+  });
+
+  it("installs reusable harness skills without overwriting local edits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ccli-skills-"));
+    try {
+      const first = await installHarnessSkills({ root });
+      expect(first.written).toContain(".ccli/skills/frontend-design.md");
+      expect(await readFile(join(root, ".ccli", "skills", "qa.md"), "utf8")).toContain("质量审查技能");
+
+      await writeFile(join(root, ".ccli", "skills", "qa.md"), "自定义审查规则\n", "utf8");
+      const second = await installHarnessSkills({ root });
+
+      expect(second.skipped).toContain(".ccli/skills/qa.md");
+      expect(await readFile(join(root, ".ccli", "skills", "qa.md"), "utf8")).toBe("自定义审查规则\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

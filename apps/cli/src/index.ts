@@ -16,6 +16,7 @@ import { ProductRenderer } from "@ccli/product-ui";
 import { createDefaultProviderRegistry, loadCcliConfig, type CcliConfig } from "@ccli/providers";
 import { ReviewerAgent } from "@ccli/review";
 import { AuditSession, readLatestAuditSummary, readState } from "@ccli/session";
+import { installHarnessSkills } from "@ccli/templates";
 import { createTemplateProject, GitHubTool, GitTool, ProjectTool } from "@ccli/tools";
 
 const program = new Command();
@@ -352,6 +353,16 @@ program
       } else {
         print("硬件设备只需要传入文字或语音转写，接收中文朗读、屏幕提示、选项和产品清单。");
       }
+    });
+  });
+
+program
+  .command("skills")
+  .description("补齐当前项目的中文开发技能")
+  .option("--overwrite", "覆盖已有技能文件")
+  .action(async (options: { overwrite?: boolean }) => {
+    await withCli(async ({ renderer, cwd, expert }) => {
+      await installSkillsForProject({ cwd, renderer, expert, overwrite: Boolean(options.overwrite) });
     });
   });
 
@@ -780,6 +791,11 @@ async function runNaturalLanguageIntent(inputValue: {
     return true;
   }
 
+  if (isSkillInstallRequest(request)) {
+    await installSkillsForProject({ cwd: inputValue.cwd, renderer: inputValue.renderer, expert: inputValue.expert, overwrite: false });
+    return true;
+  }
+
   if (isProductCreationRequest(request)) {
     print(inputValue.renderer.render({ type: "info", message: "已识别为新产品目标，开始一键生成并打开预览。" }));
     await createProductFromIdea({
@@ -800,6 +816,28 @@ async function runNaturalLanguageIntent(inputValue: {
   }
 
   return false;
+}
+
+async function installSkillsForProject(inputValue: { cwd: string; renderer: ProductRenderer; expert: boolean; overwrite: boolean }): Promise<void> {
+  const result = await installHarnessSkills({ root: inputValue.cwd, overwrite: inputValue.overwrite });
+  if (result.written.length) {
+    print(inputValue.renderer.render({ type: "done", message: `已补齐 ${result.written.length} 个中文开发技能。`, severity: "success" }));
+  } else {
+    print(inputValue.renderer.render({ type: "info", message: "当前项目已经具备内置中文开发技能。" }));
+  }
+
+  const context = await loadHarnessContext(inputValue.cwd);
+  const progress = await readHarnessProgress(inputValue.cwd);
+  print(renderHarnessReadiness(analyzeHarnessReadiness(context, progress)));
+
+  if (inputValue.expert) {
+    if (result.written.length) {
+      print(`已写入：${result.written.join("、")}`);
+    }
+    if (result.skipped.length) {
+      print(`已保留：${result.skipped.join("、")}`);
+    }
+  }
 }
 
 async function renderKnownProjects(inputValue: { renderer: ProductRenderer; expert: boolean; json: boolean }): Promise<void> {
@@ -887,6 +925,10 @@ function isProjectOpenCheckRequest(request: string): boolean {
     /(?:检查|确认|看看).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览).*(?:上次|最近|之前|产品|项目|应用|系统)/.test(request) ||
     /(?:检查|确认|看看).*(?:上次|最近|之前|产品|项目|应用|系统).*(?:能不能|能否|是否|可以)?.*(?:打开|启动|预览)/.test(request)
   );
+}
+
+function isSkillInstallRequest(request: string): boolean {
+  return /(?:补齐|安装|初始化|修复|创建).*(?:开发)?(?:技能|skill|skills)/i.test(request) || /(?:技能|skill|skills).*(?:补齐|安装|初始化|修复|创建)/i.test(request);
 }
 
 function isProductCreationRequest(request: string): boolean {
