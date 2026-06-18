@@ -12,6 +12,10 @@ export interface InstallSkillOptions {
   overwrite?: boolean;
 }
 
+export interface InstallHarnessScaffoldOptions extends InstallSkillOptions {
+  projectName?: string;
+}
+
 export interface InstallSkillResult {
   written: string[];
   skipped: string[];
@@ -36,6 +40,24 @@ export async function installHarnessSkills(options: InstallSkillOptions): Promis
   const skipped: string[] = [];
 
   for (const [relativePath, content] of Object.entries(harnessSkillFiles())) {
+    const absolutePath = join(options.root, relativePath);
+    if (!options.overwrite && existsSync(absolutePath)) {
+      skipped.push(relativePath);
+      continue;
+    }
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, content, "utf8");
+    written.push(relativePath);
+  }
+
+  return { written, skipped };
+}
+
+export async function installHarnessScaffold(options: InstallHarnessScaffoldOptions): Promise<InstallSkillResult> {
+  const written: string[] = [];
+  const skipped: string[] = [];
+
+  for (const [relativePath, content] of Object.entries(harnessScaffoldFiles(options.projectName))) {
     const absolutePath = join(options.root, relativePath);
     if (!options.overwrite && existsSync(absolutePath)) {
       skipped.push(relativePath);
@@ -96,6 +118,124 @@ export function harnessSkillFiles(): Record<string, string> {
 3. 动效是否服务理解，而不是制造热闹？
 4. 文案是否用普通人认识的词？
 5. 是否有一个能被记住但不喧宾夺主的标志性元素？
+`
+  };
+}
+
+export function harnessScaffoldFiles(projectName = "当前项目"): Record<string, string> {
+  return {
+    ...harnessSkillFiles(),
+    ".ccli/config.json": `${JSON.stringify(
+      {
+        language: "zh-CN",
+        mode: "plain-user",
+        automation: "high-with-guardrails"
+      },
+      null,
+      2
+    )}\n`,
+    "AGENTS.md": `# ccli 项目指南
+
+这个文件会被 ccli 的 Harness 稳定读取，用来约束每一次自动开发。
+
+## 固定目标
+
+- 所有用户可见内容使用简体中文。
+- 默认只向普通用户展示任务、进度、风险、选择和结果。
+- 技术细节只进入本地审计日志或专家模式。
+
+## 协作规则
+
+- 先理解用户想要的结果，再决定实现方式。
+- 每次会话优先完成一个明确任务，不把多个目标混在一起。
+- 开发前先了解当前状态，开发后必须验证并交给独立审查。
+- 生成和评估分离：开发代理负责实现，审查代理负责挑风险。
+- 每次改动尽量小而完整。
+- 验证失败时先让系统自动修复一次，再提示用户风险。
+- 删除、密钥、发布、部署和生产数据相关动作必须经过中文确认。
+`,
+    "DESIGN.md": `# 设计契约
+
+## 产品目标
+
+${projectName} 由 ccli 维护。所有后续改动都应该优先服务普通用户能理解、能判断、能使用的结果。
+
+## 目标用户
+
+非技术用户和业务负责人。他们不应该被要求理解代码、命令、接口或部署细节。
+
+## 体验原则
+
+- 第一屏直接呈现可用产品，不做空洞介绍。
+- 文案用用户能理解的业务语言命名动作。
+- 每次交付都要能被打开、验收、继续修改。
+`,
+    ".ccli/harness/README.md": `# Harness 说明
+
+Harness 是 ccli 驾驭模型的外部支架。它负责固定规则、限制工具、记录进度、触发验证和保留审计。
+
+默认目标：让普通用户只感知中文产品结果，不需要理解代码、命令、分支或 PR。
+
+关键反馈闭环：实现后先自动验证；验证失败时把问题反馈给开发代理；用户需要看效果时用本地预览确认页面结果。
+
+使用方式：先用项目指南固定规则，再让系统按阶段少量使用工具；每次验证失败都沉淀成下一轮自动修复输入，任务中断时从本地进度继续。
+`,
+    ".ccli/harness/rules/product.md": `# 产品规则
+
+- 先说明用户能得到什么结果。
+- 界面、交互和交付说明都使用普通人认识的词。
+- 不把模型的原始语言、技术术语或错误堆栈展示给普通用户。
+- 如果必须让用户选择，只描述影响和风险，不展示命令。
+`,
+    ".ccli/harness/rules/safety.md": `# 安全规则
+
+- 小范围读取、搜索、编辑和验证可以自动执行。
+- 删除大量文件、修改密钥、修改部署配置、数据库迁移、远程脚本、推送、合并、发布和生产操作必须确认。
+- 自动修复最多先尝试一次，避免无限循环。
+- 所有工具调用和模型原始结果必须进入本地审计记录。
+`,
+    ".ccli/harness/feature-list.json": `${JSON.stringify(
+      {
+        project: projectName,
+        rule: "每次会话只选择一个最重要的任务推进，完成前不扩大范围。",
+        features: [
+          {
+            id: "first-visible-outcome",
+            title: "先做一个普通用户能看懂的可见结果",
+            priority: 1,
+            status: "pending",
+            acceptance: ["能打开", "能看懂", "能说出下一步要改什么"]
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    ".ccli/harness/init-check.json": `${JSON.stringify(
+      {
+        purpose: "每次长任务开始前先确认当前项目是否处于可继续状态。",
+        steps: [
+          "读取项目指南、设计契约、规则、技能和项目记忆",
+          "读取最近进度和最近提交记录",
+          "如果项目能预览，先确认当前产品可以打开",
+          "如果有自动验证脚本，先运行验证再开始新功能",
+          "只选择任务清单里当前最重要的一项推进"
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    ".ccli/harness/agent-memory/STATE.md": `# 项目状态
+
+当前还没有长期任务状态。
+
+ccli 会把每次任务的短期进度写入本地 .ccli/progress.json，把可复用经验写入项目记忆。
+`,
+    ".ccli/harness/agent-memory/LESSONS.md": `# 失败经验库
+
+这里记录已经发生过的问题，以及以后如何避免。
+
+当用户说“以后不要再这样”或运行 ccli learn 时，ccli 会把经验写到这里，并在后续任务开始前读取。
 `
   };
 }
@@ -338,6 +478,37 @@ Harness 是 ccli 驾驭模型的外部支架。它负责固定规则、限制工
 
 使用方式：先用项目指南固定规则，再让系统按阶段少量使用工具；每次验证失败都沉淀成下一轮自动修复输入，任务中断时从本地进度继续。
 `,
+    ".ccli/harness/feature-list.json": `${JSON.stringify(
+      {
+        project: name,
+        rule: "每次会话只选择一个最重要的任务推进，完成前不扩大范围。",
+        features: [
+          {
+            id: "first-visible-outcome",
+            title: "先做一个普通用户能看懂的可见结果",
+            priority: 1,
+            status: "pending",
+            acceptance: ["能打开", "能看懂", "能说出下一步要改什么"]
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    ".ccli/harness/init-check.json": `${JSON.stringify(
+      {
+        purpose: "每次长任务开始前先确认当前项目是否处于可继续状态。",
+        steps: [
+          "读取项目指南、设计契约、规则、技能和项目记忆",
+          "读取最近进度和最近提交记录",
+          "如果项目能预览，先确认当前产品可以打开",
+          "如果有自动验证脚本，先运行验证再开始新功能",
+          "只选择任务清单里当前最重要的一项推进"
+        ]
+      },
+      null,
+      2
+    )}\n`,
     ".ccli/harness/rules/product.md": `# 产品规则
 
 - 先说明用户能得到什么结果。

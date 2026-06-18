@@ -16,6 +16,7 @@ export interface HarnessContext {
   standingFacts: HarnessDocument[];
   rules: HarnessDocument[];
   skills: HarnessDocument[];
+  artifacts: HarnessDocument[];
   memory?: HarnessDocument;
   memories: HarnessDocument[];
   toolBudget: HarnessToolBudget[];
@@ -76,6 +77,7 @@ export interface HarnessReadinessReport {
 const STANDING_FACT_FILES = ["AGENTS.md", "CLAUDE.md", "CCLI.md", ".ccli/harness/README.md"];
 const RULE_FILES = [".ccli/harness/rules/safety.md", ".ccli/harness/rules/product.md"];
 const SKILL_FILES = [".ccli/skills/office-hours.md", ".ccli/skills/frontend-design.md", ".ccli/skills/qa.md"];
+const ARTIFACT_FILES = [".ccli/harness/feature-list.json", ".ccli/harness/init-check.json"];
 const MEMORY_FILE = ".ccli/harness/agent-memory/STATE.md";
 const LESSONS_FILE = ".ccli/harness/agent-memory/LESSONS.md";
 const MEMORY_FILES = [MEMORY_FILE, LESSONS_FILE];
@@ -83,10 +85,11 @@ const PROGRESS_FILE = ".ccli/progress.json";
 const MAX_DOCUMENT_CHARS = 5000;
 
 export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
-  const [standingFacts, rules, skills, memories] = await Promise.all([
+  const [standingFacts, rules, skills, artifacts, memories] = await Promise.all([
     readDocuments(cwd, STANDING_FACT_FILES),
     readDocuments(cwd, RULE_FILES),
     readDocuments(cwd, SKILL_FILES),
+    readDocuments(cwd, ARTIFACT_FILES),
     readDocuments(cwd, MEMORY_FILES)
   ]);
 
@@ -94,6 +97,7 @@ export async function loadHarnessContext(cwd: string): Promise<HarnessContext> {
     standingFacts,
     rules,
     skills,
+    artifacts,
     memory: memories[0],
     memories,
     toolBudget: defaultToolBudget()
@@ -122,6 +126,7 @@ export function harnessPrompt(context: HarnessContext, stage: HarnessStage): str
     renderDocuments("长期事实", context.standingFacts),
     renderDocuments("确定性规则", context.rules),
     renderDocuments("可复用技能", context.skills),
+    renderDocuments("执行清单", context.artifacts),
     context.memories.length ? renderDocuments("项目记忆", context.memories) : context.memory ? renderDocuments("项目记忆", [context.memory]) : ""
   ];
 
@@ -242,6 +247,18 @@ export function analyzeHarnessReadiness(context: HarnessContext, progress?: Harn
       nextAction: "为前端设计、验收检查或业务流程补充至少一个技能文件。"
     },
     {
+      name: "结构化任务清单",
+      ready: context.artifacts.some((document) => document.path.endsWith("feature-list.json")),
+      impact: "长任务会按一个明确任务推进，降低一次做太多导致跑偏的概率。",
+      nextAction: "运行 ccli harness --init，生成结构化任务清单。"
+    },
+    {
+      name: "开工基线检查",
+      ready: context.artifacts.some((document) => document.path.endsWith("init-check.json")),
+      impact: "每次开工前先确认当前状态，避免在已经坏掉的项目上继续叠加新功能。",
+      nextAction: "运行 ccli harness --init，生成开工检查清单。"
+    },
+    {
       name: "长期项目记忆",
       ready: context.memories.length > 0 || Boolean(context.memory),
       impact: "跨会话能记住项目事实，长任务不完全依赖模型上下文。",
@@ -350,8 +367,9 @@ export function renderHarnessSummary(context: HarnessContext): string {
   const facts = context.standingFacts.length;
   const rules = context.rules.length;
   const skills = context.skills.length;
+  const artifacts = context.artifacts.length;
   const memory = context.memories.length ? `已接入 ${context.memories.length} 份项目记忆` : context.memory ? "已接入历史记忆" : "暂无历史记忆";
-  return `驾驭系统已加载：${facts} 份长期事实、${rules} 份确定性规则、${skills} 个复用技能，${memory}。`;
+  return `驾驭系统已加载：${facts} 份长期事实、${rules} 份确定性规则、${skills} 个复用技能、${artifacts} 份执行清单，${memory}。`;
 }
 
 async function readDocuments(cwd: string, relativePaths: string[]): Promise<HarnessDocument[]> {

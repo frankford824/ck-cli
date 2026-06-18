@@ -127,6 +127,7 @@ ccli roles --expert
 ccli design --expert
 ccli skills
 ccli harness
+ccli harness --init
 ccli harness --method
 ccli learn "以后按钮在手机上也要清楚好点击"
 ccli harness --expert
@@ -394,6 +395,7 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 
 - 启动任务时读取 `AGENTS.md`、`CLAUDE.md`、`CCLI.md`、`.ccli/harness/` 和 `.ccli/skills/`。
 - 每个阶段只暴露少量工具语义，减少模型选择噪音。
+- `ccli harness --init` 会为已有项目补齐项目指南、产品规则、安全规则、任务清单、开工检查、长期状态和失败经验库。
 - 自动验证失败时，把失败摘要交回开发代理，最多先自动修复一次。
 - 每个阶段写入 `.ccli/progress.json`，长任务或上下文丢失后可以接管。
 - 每次踩坑都可以写入 `.ccli/harness/agent-memory/LESSONS.md`，后续任务开始前会自动读取。
@@ -407,6 +409,12 @@ ccli 把智能体理解成“模型 + 驾驭系统”。模型负责规划、开
 
 ```bash
 ccli skills
+```
+
+为已有项目搭好完整驾驭支架：
+
+```bash
+ccli harness --init
 ```
 
 查看当前项目的驾驭系统：

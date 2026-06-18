@@ -272,6 +272,7 @@ export class TaskOrchestrator {
       standingFacts: harnessContext.standingFacts.map((document) => document.path),
       rules: harnessContext.rules.map((document) => document.path),
       skills: harnessContext.skills.map((document) => document.path),
+      artifacts: harnessContext.artifacts.map((document) => document.path),
       memory: Boolean(harnessContext.memory)
     });
 
