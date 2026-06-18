@@ -4614,6 +4614,7 @@ async function createProductFromIdea(inputValue: {
     path: target
   });
   print(inputValue.renderer.render({ type: "done", message: "第一个版本已处理完成。后续可以继续用中文提需求。", severity: "success" }));
+  print(renderBossReportCard(await buildBossReportCard(target)));
   if (inputValue.preview) {
     await ensureDependenciesForPreview({
       cwd: target,
