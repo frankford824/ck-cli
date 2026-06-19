@@ -4258,11 +4258,11 @@ function ideaKeyFromNaturalRequest(request: string): string | undefined {
     return undefined;
   }
   const keywordMap: Array<[string, string]> = [
-    ["客户|销售|跟进", "customer"],
+    ["客户|销售|跟进|CRM|crm", "customer"],
     ["预约|排班|门店|到店", "booking"],
-    ["库存|仓库|补货|出库|入库", "inventory"],
+    ["库存|仓库|补货|出库|入库|进销存|收银|台账", "inventory"],
     ["订单|发货|物流|售后", "orders"],
-    ["财务|收支|收入|支出|回款|现金流", "finance"],
+    ["财务|收支|收入|支出|回款|现金流|报表|BI|bi|数据看板", "finance"],
     ["内容|发布|素材|品牌|文章", "content"]
   ];
   return keywordMap.find(([pattern]) => new RegExp(pattern).test(request))?.[1];
@@ -4289,29 +4289,34 @@ function lessonFromNaturalRequest(request: string): string {
 }
 
 function isProductCreationRequest(request: string): boolean {
-  const hasProductNoun = /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|客户|订单|库存|页面|小程序|CRM|crm)/.test(request);
+  const hasProductNoun = productNounPattern().test(request);
   return (
-    /(?:一键)?(?:做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个)/.test(request) &&
+    /(?:一键)?(?:我想做|我要做|想做|要做|帮我做|给我做|做一个|做个|做套|做|创建一个|创建个|创建|开发一个|开发个|开发|生成一个|生成个|生成|搭建一个|搭建个|搭建|新建一个|新建个|新建|新开一个|新开个|新开|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个)/.test(request) &&
       hasProductNoun
   ) || isBareProductPhrase(request);
 }
 
 function isExplicitNewProductRequest(request: string): boolean {
   return (
-    /(?:新建|新开|另起|从零|重新)(?:一个|个)?.*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm)/.test(request) ||
-    /(?:做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个).*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm)/.test(request)
+    /(?:新建|新开|另起|从零|重新)(?:一个|个)?.*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm|ERP|erp|BI|bi|进销存|收银台|收银系统|报表工具|数据看板)/.test(request) ||
+    /(?:做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个).*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm|ERP|erp|BI|bi|进销存|收银台|收银系统|报表工具|数据看板)/.test(request)
   );
+}
+
+function productNounPattern(): RegExp {
+  return /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|客户|订单|库存|页面|小程序|CRM|crm|ERP|erp|BI|bi|进销存|收银|收银台|报表|台账|工作台|后台)/;
 }
 
 function isBareProductPhrase(request: string): boolean {
   const normalized = request.trim().replace(/[，。！？!?,.\s"'“”‘’]/g, "");
-  if (normalized.length < 4 || normalized.length > 18) {
+  if (normalized.length < 2 || normalized.length > 18) {
     return false;
   }
   if (/(?:打开|启动|预览|查看|继续|修改|调整|优化|撤回|验收|交付|发布|合并|帮助|怎么|如何|为什么|吗|呢|吧)/.test(normalized)) {
     return false;
   }
-  return /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|订单|库存|页面|小程序|CRM|crm)$/.test(normalized);
+  return /^(?:CRM|crm|ERP|erp|BI|bi|进销存|收银|报表|台账)$/.test(normalized) ||
+    /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|订单|库存|页面|小程序|CRM|crm|ERP|erp|BI|bi|进销存|收银台|报表|台账|工作台|后台)$/.test(normalized);
 }
 
 async function shouldCreateProductFromNaturalRequest(cwd: string, request: string): Promise<boolean> {
@@ -4896,7 +4901,7 @@ function projectNameFromIdea(idea: string): string {
   const firstClause = idea
     .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
     .split(/[，。；;,.!?！？\n]/)[0]
-    .replace(/^(从零做一个|从零做个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|给我一个|给我个|想要一个|想要个|我要一个|我要个|做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个|另起一个|另起个|帮我|请|我想|我要|想要|需要|给我|来|弄|搞|整|做|创建|开发|生成|搭建|新建|新开|另起)/, "")
+    .replace(/^(从零做一个|从零做个|我想做一个|我想做个|我要做一个|我要做个|想做一个|想做个|要做一个|要做个|帮我做一个|帮我做个|给我做一个|给我做个|我想做|我要做|想做|要做|帮我做|给我做|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|给我一个|给我个|想要一个|想要个|我要一个|我要个|做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个|另起一个|另起个|帮我|请|我想|我要|想要|需要|给我|来|弄|搞|整|做|创建|开发|生成|搭建|新建|新开|另起)/, "")
     .replace(/[^\p{L}\p{N}\u4e00-\u9fff_-]+/gu, "")
     .slice(0, 18);
   return firstClause || `我的应用-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
