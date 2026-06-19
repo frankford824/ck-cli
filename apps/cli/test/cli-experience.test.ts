@@ -231,6 +231,35 @@ describe("cli boss experience", () => {
     }
   });
 
+  it("creates a product from a bare product phrase in an empty workspace", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-bare-product-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "库存看板"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 60_000
+        }
+      );
+
+      expect(stdout).toContain("已识别为新产品目标");
+      expect(stdout).toContain("老板交付卡");
+      expect(stdout).toContain("库存看板");
+      expect(stdout).not.toContain("这次需求已处理完成");
+      await expect(readFile(join(cwd, "库存看板", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("recognizes shopping-style product requests on hardware", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "ccli-hardware-shopping-"));
@@ -251,6 +280,35 @@ describe("cli boss experience", () => {
 
       expect(stdout).toContain("\"kind\": \"create-product\"");
       expect(stdout).toContain("\"name\": \"门店预约系统\"");
+      expect(stdout).toContain("确认生成首版产品");
+      expect(stdout).not.toContain("\"kind\": \"fallback\"");
+      expect(stdout).not.toContain("\"command\"");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("recognizes bare product phrases on hardware", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-hardware-bare-product-"));
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "客户管理系统", "--json"],
+        {
+          cwd: resolve("."),
+          env: {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home
+          },
+          timeout: 30_000
+        }
+      );
+
+      expect(stdout).toContain("\"kind\": \"create-product\"");
+      expect(stdout).toContain("\"name\": \"客户管理系统\"");
       expect(stdout).toContain("确认生成首版产品");
       expect(stdout).not.toContain("\"kind\": \"fallback\"");
       expect(stdout).not.toContain("\"command\"");
