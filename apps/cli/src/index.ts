@@ -4289,8 +4289,11 @@ function lessonFromNaturalRequest(request: string): string {
 }
 
 function isProductCreationRequest(request: string): boolean {
-  return /(?:一键)?(?:做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个)/.test(request) &&
-    /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|客户|订单|库存|页面|小程序|CRM|crm)/.test(request);
+  const hasProductNoun = /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|客户|订单|库存|页面|小程序|CRM|crm)/.test(request);
+  return (
+    /(?:一键)?(?:做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个)/.test(request) &&
+      hasProductNoun
+  ) || isBareProductPhrase(request);
 }
 
 function isExplicitNewProductRequest(request: string): boolean {
@@ -4298,6 +4301,17 @@ function isExplicitNewProductRequest(request: string): boolean {
     /(?:新建|新开|另起|从零|重新)(?:一个|个)?.*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm)/.test(request) ||
     /(?:做一个|做个|做套|创建一个|创建个|开发一个|开发个|生成一个|生成个|搭建一个|搭建个|新建一个|新建个|新开一个|新开个|要一个|要个|想要一个|想要个|给我一个|给我个|帮我弄一个|帮我弄个|帮我搞一个|帮我搞个|帮我整一个|帮我整个|弄一个|弄个|搞一个|搞个|整一个|整个|来一个|来个).*(?:系统|应用|产品|平台|网站|工具|看板|小程序|CRM|crm)/.test(request)
   );
+}
+
+function isBareProductPhrase(request: string): boolean {
+  const normalized = request.trim().replace(/[，。！？!?,.\s"'“”‘’]/g, "");
+  if (normalized.length < 4 || normalized.length > 18) {
+    return false;
+  }
+  if (/(?:打开|启动|预览|查看|继续|修改|调整|优化|撤回|验收|交付|发布|合并|帮助|怎么|如何|为什么|吗|呢|吧)/.test(normalized)) {
+    return false;
+  }
+  return /(?:系统|应用|产品|平台|网站|工具|看板|管理|预约|订单|库存|页面|小程序|CRM|crm)$/.test(normalized);
 }
 
 async function shouldCreateProductFromNaturalRequest(cwd: string, request: string): Promise<boolean> {
