@@ -239,16 +239,17 @@ describe("experience", () => {
     expect(text).not.toContain("```");
   });
 
-  it("maps shopkeeper category language to a concrete boss brief", () => {
+  it("keeps unmatched product ideas generic in the boss brief", () => {
     const brief = createBossBrief({
-      goal: "进销存"
+      goal: "团队日报助手"
     });
     const text = renderBossBrief(brief);
 
-    expect(brief.productName).toBe("库存预警看板");
-    expect(brief.audience).toContain("门店收银");
-    expect(text).toContain("进销存");
-    expect(text).toContain("收银");
+    expect(brief.productName).toBeUndefined();
+    expect(brief.audience).toContain("老板、员工");
+    expect(text).toContain("团队日报助手");
+    expect(text).not.toContain("库存预警");
+    expect(text).not.toContain("收银");
     expect(text).not.toContain("src/");
     expect(text).not.toContain("```");
   });

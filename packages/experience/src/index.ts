@@ -405,9 +405,9 @@ export function starterIdeas(): StarterIdea[] {
     {
       id: "inventory",
       title: "库存预警看板",
-      bestFor: "仓库、零售、电商、工厂、门店收银",
-      outcome: "查看库存、进销存、低库存、出库提醒和补货动作。",
-      say: "做一个进销存看板，能看库存、收银、今日出库和补货提醒",
+      bestFor: "仓库、零售、电商、工厂",
+      outcome: "查看库存、低库存、出库提醒和补货动作。",
+      say: "做一个库存看板，能看低库存、今日出库和生成补货提醒",
       firstCheck: "打开后先看低库存和今日出库是否在首屏突出。"
     },
     {
@@ -1962,7 +1962,7 @@ function audienceExamples(goal: string | undefined, matched: StarterIdea | undef
     matched?.bestFor,
     goal && /客户|销售|crm/i.test(goal) ? "老板、销售、客服、门店员工" : undefined,
     goal && /预约|排班|门店|诊所|美业/.test(goal) ? "前台、店长、服务人员、预约客户" : undefined,
-    goal && /库存|仓库|补货|出库|进销存|收银|台账/.test(goal) ? "仓库、采购、店长、运营人员" : undefined,
+    goal && /库存|仓库|补货|出库/.test(goal) ? "仓库、采购、店长、运营人员" : undefined,
     goal && /订单|发货|物流|售后/.test(goal) ? "客服、发货员、售后、老板" : undefined,
     goal && /财务|收支|回款|现金流/.test(goal) ? "老板、财务、项目负责人" : undefined,
     "老板自己、销售、前台、仓库、客户"
@@ -1974,9 +1974,9 @@ function firstScreenExamples(goal: string | undefined, matched: StarterIdea | un
     matched?.firstCheck.replace(/^打开后先看是否能/, "").replace(/^打开后先看/, "").replace(/。$/, ""),
     goal && /客户|销售|crm/i.test(goal) ? "待跟进客户、高意向客户、今天要联系的人" : undefined,
     goal && /预约|排班|门店|诊所|美业/.test(goal) ? "今日预约、空闲时间、临近到店提醒" : undefined,
-    goal && /库存|仓库|补货|出库|进销存|收银|台账/.test(goal) ? "库存、今日出库、收银概况、需要补货的商品" : undefined,
+    goal && /库存|仓库|补货|出库/.test(goal) ? "低库存、今日出库、需要补货的商品" : undefined,
     goal && /订单|发货|物流|售后/.test(goal) ? "待发货订单、异常订单、售后风险" : undefined,
-    goal && /财务|收支|回款|现金流|报表|BI|bi|数据看板/.test(goal) ? "今日收支、待回款、现金流风险" : undefined,
+    goal && /财务|收支|回款|现金流/.test(goal) ? "今日收支、待回款、现金流风险" : undefined,
     "待办重点、风险提醒、今天最该处理的事"
   ], 5);
 }
@@ -1986,7 +1986,7 @@ function acceptanceExamples(goal: string | undefined, matched: StarterIdea | und
     matched?.firstCheck,
     "能看懂重点",
     goal?.includes("提醒") ? "能看到该处理的提醒" : undefined,
-    goal && /新增|记录|录入|客户|订单|库存|进销存|收银|台账/.test(goal) ? "能新增或记录一条业务信息" : undefined,
+    goal && /新增|记录|录入|客户|订单|库存/.test(goal) ? "能新增或记录一条业务信息" : undefined,
     "手机上也能看清楚",
     "老板不解释也能判断是否有用"
   ], 5);
@@ -2025,13 +2025,13 @@ function audienceFromGoal(goal: string): string {
   if (/预约|排班|门店|诊所|美业/.test(goal)) {
     return "门店、服务人员和预约客户";
   }
-  if (/库存|仓库|补货|出库|进销存|收银|台账/.test(goal)) {
-    return "仓库、零售、电商、门店和运营人员";
+  if (/库存|仓库|补货|出库/.test(goal)) {
+    return "仓库、零售、电商和运营人员";
   }
   if (/订单|发货|物流|售后/.test(goal)) {
     return "电商、批发和售后团队";
   }
-  if (/财务|收支|回款|现金流|报表|BI|bi|数据看板/.test(goal)) {
+  if (/财务|收支|回款|现金流/.test(goal)) {
     return "老板、财务和项目负责人";
   }
   if (/内容|发布|素材|审核/.test(goal)) {
