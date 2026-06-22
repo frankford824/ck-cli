@@ -239,6 +239,20 @@ describe("experience", () => {
     expect(text).not.toContain("```");
   });
 
+  it("maps shopkeeper category language to a concrete boss brief", () => {
+    const brief = createBossBrief({
+      goal: "进销存"
+    });
+    const text = renderBossBrief(brief);
+
+    expect(brief.productName).toBe("库存预警看板");
+    expect(brief.audience).toContain("门店收银");
+    expect(text).toContain("进销存");
+    expect(text).toContain("收银");
+    expect(text).not.toContain("src/");
+    expect(text).not.toContain("```");
+  });
+
   it("renders a boss question card before writing a brief", () => {
     const card = createBossQuestionCard({
       productName: "客户跟进系统",

@@ -941,13 +941,13 @@ ul {
 }
 
 function inferStarterDomain(requirement: string): StarterDomain {
-  if (/库存|仓库|补货|入库|出库|sku|SKU|商品|存货/i.test(requirement)) {
+  if (/库存|仓库|补货|入库|出库|sku|SKU|商品|存货|进销存|收银|收银台|台账/i.test(requirement)) {
     return "inventory";
   }
   if (/订单|发货|物流|售后|退款|履约|电商/i.test(requirement)) {
     return "orders";
   }
-  if (/财务|收支|利润|成本|报销|账单|回款|应收|应付/i.test(requirement)) {
+  if (/财务|收支|利润|成本|报销|账单|回款|应收|应付|报表|BI|bi|数据看板/i.test(requirement)) {
     return "finance";
   }
   if (/官网|内容|文章|发布|素材|品牌|营销|咨询公司/i.test(requirement)) {
