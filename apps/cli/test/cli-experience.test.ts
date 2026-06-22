@@ -260,13 +260,13 @@ describe("cli boss experience", () => {
     }
   });
 
-  it("creates products from terse business category phrases", async () => {
+  it("creates products from generic product-shape phrases", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "ccli-business-category-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-generic-product-"));
     try {
       const { stdout } = await execFileAsync(
         process.execPath,
-        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "我想做客户管理"],
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "我想做团队日报助手"],
         {
           cwd: resolve("."),
           env: {
@@ -280,22 +280,22 @@ describe("cli boss experience", () => {
 
       expect(stdout).toContain("已识别为新产品目标");
       expect(stdout).toContain("老板交付卡");
-      expect(stdout).toContain("客户管理");
+      expect(stdout).toContain("团队日报助手");
       expect(stdout).not.toContain("这次需求已处理完成");
-      await expect(readFile(join(cwd, "客户管理", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
+      await expect(readFile(join(cwd, "团队日报助手", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
     } finally {
       await rm(home, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
     }
   });
 
-  it("creates products from short shopkeeper category names", async () => {
+  it("creates products from bare generic product names", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "ccli-short-category-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-generic-bare-product-"));
     try {
       const { stdout } = await execFileAsync(
         process.execPath,
-        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "进销存"],
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "图像生成器"],
         {
           cwd: resolve("."),
           env: {
@@ -309,9 +309,9 @@ describe("cli boss experience", () => {
 
       expect(stdout).toContain("已识别为新产品目标");
       expect(stdout).toContain("老板交付卡");
-      expect(stdout).toContain("进销存");
+      expect(stdout).toContain("图像生成器");
       expect(stdout).not.toContain("这次需求已处理完成");
-      await expect(readFile(join(cwd, "进销存", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
+      await expect(readFile(join(cwd, "图像生成器", "package.json"), "utf8")).resolves.toContain("\"scripts\"");
     } finally {
       await rm(home, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
@@ -376,13 +376,13 @@ describe("cli boss experience", () => {
     }
   });
 
-  it("recognizes short business categories on hardware", async () => {
+  it("recognizes generic product names on hardware", async () => {
     const home = await mkdtemp(join(tmpdir(), "ccli-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "ccli-hardware-short-category-"));
+    const cwd = await mkdtemp(join(tmpdir(), "ccli-hardware-generic-product-"));
     try {
       const { stdout } = await execFileAsync(
         process.execPath,
-        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "CRM", "--json"],
+        ["--conditions", "source", "--import", "tsx", "apps/cli/src/index.ts", "--cwd", cwd, "hardware", "智能问答助手", "--json"],
         {
           cwd: resolve("."),
           env: {
@@ -395,7 +395,7 @@ describe("cli boss experience", () => {
       );
 
       expect(stdout).toContain("\"kind\": \"create-product\"");
-      expect(stdout).toContain("\"name\": \"CRM\"");
+      expect(stdout).toContain("\"name\": \"智能问答助手\"");
       expect(stdout).toContain("确认生成首版产品");
       expect(stdout).not.toContain("\"kind\": \"fallback\"");
       expect(stdout).not.toContain("\"command\"");
