@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="../LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="Node >= 20" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg">
+  <img alt="Node 20+" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg">
   <a href="https://github.com/frankford824/ck-cli/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/frankford824/ck-cli?style=flat"></a>
   <a href="../README.md"><img alt="中文" src="https://img.shields.io/badge/docs-%E4%B8%AD%E6%96%87-lightgrey.svg"></a>
 </p>
